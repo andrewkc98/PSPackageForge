@@ -1,0 +1,463 @@
+﻿{
+    "SchemaVersion":  "1.0",
+    "GeneratedAtUtc":  "2026-08-07T12:47:46.9090378Z",
+    "Generator":  {
+                      "Name":  "PSPackageForge",
+                      "Version":  "0.1.0",
+                      "RequiredPSADTVersion":  "4.0.6"
+                  },
+    "Installer":  {
+                      "Path":  "7z2602-x64.msi",
+                      "FileName":  "7z2602-x64.msi",
+                      "SHA256":  "DB407A4F6D4999E5C7BC00CE8A882BE94717B56E7FA68140FE3F12605D91643E",
+                      "FileSize":  1999872,
+                      "Signature":  {
+                                        "IsSigned":  false,
+                                        "Status":  "NotSigned",
+                                        "SignerSubject":  null,
+                                        "SignerThumbprint":  null
+                                    },
+                      "ContainerType":  "Msi",
+                      "PayloadType":  "Msi",
+                      "MsiKind":  "Native",
+                      "Framework":  "MsiNative",
+                      "FrameworkCandidates":  [
+
+                                              ],
+                      "Architecture":  "x64",
+                      "ProductName":  "7-Zip 26.02 (x64 edition)",
+                      "Manufacturer":  "Igor Pavlov",
+                      "ProductVersionRaw":  "26.02.00.0",
+                      "ProductCode":  "{23170F69-40C1-2702-2602-000001000000}",
+                      "UpgradeCode":  "{23170F69-40C1-2702-0000-000004000000}",
+                      "Language":  "1033",
+                      "ProductCodePresent":  true,
+                      "SupportsMsiUninstall":  true,
+                      "Evidence":  [
+                                       {
+                                           "Field":  "ContainerType",
+                                           "Value":  "Msi",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High",
+                                           "Notes":  "The supplied file opened as a Windows Installer database."
+                                       },
+                                       {
+                                           "Field":  "ProductName",
+                                           "Value":  "7-Zip 26.02 (x64 edition)",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High"
+                                       },
+                                       {
+                                           "Field":  "Manufacturer",
+                                           "Value":  "Igor Pavlov",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High"
+                                       },
+                                       {
+                                           "Field":  "ProductVersionRaw",
+                                           "Value":  "26.02.00.0",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High",
+                                           "Notes":  "Exactly as reported by the MSI Property table; not normalised."
+                                       },
+                                       {
+                                           "Field":  "ProductCode",
+                                           "Value":  "{23170F69-40C1-2702-2602-000001000000}",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High"
+                                       },
+                                       {
+                                           "Field":  "UpgradeCode",
+                                           "Value":  "{23170F69-40C1-2702-0000-000004000000}",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High",
+                                           "Notes":  "Identifies a related product family. It is NOT a supersedence relationship."
+                                       },
+                                       {
+                                           "Field":  "ProductCodePresent",
+                                           "Value":  true,
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High"
+                                       },
+                                       {
+                                           "Field":  "Architecture",
+                                           "Value":  "x64",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High",
+                                           "Notes":  "From the MSI summary Template \u0027x64;1033\u0027."
+                                       },
+                                       {
+                                           "Field":  "Language",
+                                           "Value":  "1033",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High"
+                                       },
+                                       {
+                                           "Field":  "MsiKind",
+                                           "Value":  "Native",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High",
+                                           "Notes":  "Normal payload (106 file(s), 3 feature(s)) with no embedded executable custom actions."
+                                       },
+                                       {
+                                           "Field":  "PayloadType",
+                                           "Value":  "Msi",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High",
+                                           "Notes":  "The MSI contains a normal installable file payload."
+                                       },
+                                       {
+                                           "Field":  "SupportsMsiUninstall",
+                                           "Value":  true,
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High"
+                                       },
+                                       {
+                                           "Field":  "InstallLocation",
+                                           "Value":  "%ProgramFiles%\\7-Zip",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "High",
+                                           "Notes":  "Resolved through File -\u003e Component -\u003e Directory as [ProgramFiles64Folder]\\7-Zip."
+                                       },
+                                       {
+                                           "Field":  "DetectionTarget",
+                                           "Value":  "%ProgramFiles%\\7-Zip\\7z.exe",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "Medium",
+                                           "Notes":  "Selected \u0027_7z.exe\u0027 from the MSI File table using this heuristic: executable base name resembles ProductName; largest match wins"
+                                       },
+                                       {
+                                           "Field":  "SelectedContext",
+                                           "Value":  "System",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "Medium",
+                                           "Notes":  "The payload installs under ProgramFiles64Folder, a machine-scope location that a per-user install cannot write to."
+                                       },
+                                       {
+                                           "Field":  "DetectionTargetVersion",
+                                           "Value":  "26.2.0.0",
+                                           "Source":  "MsiDatabase",
+                                           "Confidence":  "Medium",
+                                           "Notes":  "File version of the heuristically selected detection target \u00277z.exe\u0027 from the MSI File table."
+                                       }
+                                   ],
+                      "ResolvedEvidence":  [
+                                               {
+                                                   "Field":  "ContainerType",
+                                                   "Value":  "Msi",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High",
+                                                   "Notes":  "The supplied file opened as a Windows Installer database."
+                                               },
+                                               {
+                                                   "Field":  "ProductName",
+                                                   "Value":  "7-Zip 26.02 (x64 edition)",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High"
+                                               },
+                                               {
+                                                   "Field":  "Manufacturer",
+                                                   "Value":  "Igor Pavlov",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High"
+                                               },
+                                               {
+                                                   "Field":  "ProductVersionRaw",
+                                                   "Value":  "26.02.00.0",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High",
+                                                   "Notes":  "Exactly as reported by the MSI Property table; not normalised."
+                                               },
+                                               {
+                                                   "Field":  "ProductCode",
+                                                   "Value":  "{23170F69-40C1-2702-2602-000001000000}",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High"
+                                               },
+                                               {
+                                                   "Field":  "UpgradeCode",
+                                                   "Value":  "{23170F69-40C1-2702-0000-000004000000}",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High",
+                                                   "Notes":  "Identifies a related product family. It is NOT a supersedence relationship."
+                                               },
+                                               {
+                                                   "Field":  "ProductCodePresent",
+                                                   "Value":  true,
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High"
+                                               },
+                                               {
+                                                   "Field":  "Architecture",
+                                                   "Value":  "x64",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High",
+                                                   "Notes":  "From the MSI summary Template \u0027x64;1033\u0027."
+                                               },
+                                               {
+                                                   "Field":  "Language",
+                                                   "Value":  "1033",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High"
+                                               },
+                                               {
+                                                   "Field":  "MsiKind",
+                                                   "Value":  "Native",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High",
+                                                   "Notes":  "Normal payload (106 file(s), 3 feature(s)) with no embedded executable custom actions."
+                                               },
+                                               {
+                                                   "Field":  "PayloadType",
+                                                   "Value":  "Msi",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High",
+                                                   "Notes":  "The MSI contains a normal installable file payload."
+                                               },
+                                               {
+                                                   "Field":  "SupportsMsiUninstall",
+                                                   "Value":  true,
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High"
+                                               },
+                                               {
+                                                   "Field":  "InstallLocation",
+                                                   "Value":  "%ProgramFiles%\\7-Zip",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "High",
+                                                   "Notes":  "Resolved through File -\u003e Component -\u003e Directory as [ProgramFiles64Folder]\\7-Zip."
+                                               },
+                                               {
+                                                   "Field":  "DetectionTarget",
+                                                   "Value":  "%ProgramFiles%\\7-Zip\\7z.exe",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "Medium",
+                                                   "Notes":  "Selected \u0027_7z.exe\u0027 from the MSI File table using this heuristic: executable base name resembles ProductName; largest match wins"
+                                               },
+                                               {
+                                                   "Field":  "SelectedContext",
+                                                   "Value":  "System",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "Medium",
+                                                   "Notes":  "The payload installs under ProgramFiles64Folder, a machine-scope location that a per-user install cannot write to."
+                                               },
+                                               {
+                                                   "Field":  "DetectionTargetVersion",
+                                                   "Value":  "26.2.0.0",
+                                                   "Source":  "MsiDatabase",
+                                                   "Confidence":  "Medium",
+                                                   "Notes":  "File version of the heuristically selected detection target \u00277z.exe\u0027 from the MSI File table."
+                                               }
+                                           ],
+                      "Findings":  [
+                                       {
+                                           "Severity":  "Info",
+                                           "Code":  "MSI_ALLUSERS_AMBIGUOUS",
+                                           "Message":  "MSI property ALLUSERS=2 means per-machine when elevated and per-user otherwise, so it does not determine context on its own.",
+                                           "Field":  "SelectedContext"
+                                       },
+                                       {
+                                           "Severity":  "Info",
+                                           "Code":  "MSI_DETECTION_TARGET_INFERRED",
+                                           "Message":  "The install directory resolved at High confidence, but choosing \u00277z.exe\u0027 as the detection target is heuristic (executable base name resembles ProductName; largest match wins); target confidence is Medium. Review the selected file before deployment.",
+                                           "Field":  "DetectionTarget"
+                                       },
+                                       {
+                                           "Severity":  "Info",
+                                           "Code":  "MSI_VERSION_DIFFERS_FROM_FILE",
+                                           "Message":  "The MSI ProductVersion (26.02.00.0) differs from the version of the detection target file 7z.exe (26.2.0.0). File-based detection must compare against the file version, not the ProductVersion.",
+                                           "Field":  "DetectionTargetVersion"
+                                       },
+                                       {
+                                           "Severity":  "Info",
+                                           "Code":  "MSI_UPGRADE_TABLE_PRESENT",
+                                           "Message":  "Related MSI products may share the UpgradeCode(s) {23170F69-40C1-2702-0000-000004000000}; review them when configuring upgrade or supersedence behaviour. An UpgradeCode is a product family identifier, not a ConfigMgr supersedence relationship.",
+                                           "Field":  "UpgradeCode"
+                                       }
+                                   ]
+                  },
+    "PackageSpec":  {
+                        "InstallCommand":  {
+                                               "Executable":  "msiexec.exe",
+                                               "ArgumentList":  [
+                                                                    "/i",
+                                                                    "7z2602-x64.msi",
+                                                                    "/qn"
+                                                                ],
+                                               "ExpectedExitCodes":  [
+                                                                         0,
+                                                                         3010,
+                                                                         1641,
+                                                                         1707
+                                                                     ]
+                                           },
+                        "UninstallCommand":  {
+                                                 "Executable":  "msiexec.exe",
+                                                 "ArgumentList":  [
+                                                                      "/x",
+                                                                      "{23170F69-40C1-2702-2602-000001000000}",
+                                                                      "/qn"
+                                                                  ],
+                                                 "ExpectedExitCodes":  [
+                                                                           0,
+                                                                           3010,
+                                                                           1641,
+                                                                           1707
+                                                                       ]
+                                             },
+                        "SupportedContexts":  [
+                                                  "System"
+                                              ],
+                        "SelectedContext":  "System",
+                        "ContextEvidence":  [
+                                                {
+                                                    "Field":  "SelectedContext",
+                                                    "Value":  "System",
+                                                    "Source":  "MsiDatabase",
+                                                    "Confidence":  "Medium",
+                                                    "Notes":  "The payload installs under ProgramFiles64Folder, a machine-scope location that a per-user install cannot write to."
+                                                }
+                                            ],
+                        "RequiresLogonWhenUserContext":  false,
+                        "DetectionSpec":  [
+                                              {
+                                                  "Kind":  "File",
+                                                  "Path":  "%ProgramFiles%\\7-Zip",
+                                                  "FileName":  "7z.exe",
+                                                  "UsesWildcardPath":  false,
+                                                  "Operator":  "Exact",
+                                                  "Value":  "26.2.0.0",
+                                                  "Confidence":  "Medium",
+                                                  "Rationale":  "File detection from resolved DetectionTarget and DetectionTargetVersion evidence. Operator: Exact."
+                                              }
+                                          ],
+                        "DecisionEvidence":  [
+                                                 {
+                                                     "Field":  "InstallCommand",
+                                                     "Value":  {
+                                                                   "Executable":  "msiexec.exe",
+                                                                   "ArgumentList":  [
+                                                                                        "/i",
+                                                                                        "7z2602-x64.msi",
+                                                                                        "/qn"
+                                                                                    ],
+                                                                   "ExpectedExitCodes":  [
+                                                                                             0,
+                                                                                             3010,
+                                                                                             1641,
+                                                                                             1707
+                                                                                         ]
+                                                               },
+                                                     "Source":  "MsiDatabase",
+                                                     "Confidence":  "High",
+                                                     "Notes":  "Standard MSI quiet-install command from the supplied MSI filename."
+                                                 },
+                                                 {
+                                                     "Field":  "UninstallCommand",
+                                                     "Value":  {
+                                                                   "Executable":  "msiexec.exe",
+                                                                   "ArgumentList":  [
+                                                                                        "/x",
+                                                                                        "{23170F69-40C1-2702-2602-000001000000}",
+                                                                                        "/qn"
+                                                                                    ],
+                                                                   "ExpectedExitCodes":  [
+                                                                                             0,
+                                                                                             3010,
+                                                                                             1641,
+                                                                                             1707
+                                                                                         ]
+                                                               },
+                                                     "Source":  "MsiDatabase",
+                                                     "Confidence":  "High",
+                                                     "Notes":  "Native MSI uninstall uses ProductCode, never the source MSI filename."
+                                                 },
+                                                 {
+                                                     "Field":  "SelectedContext",
+                                                     "Value":  "System",
+                                                     "Source":  "MsiDatabase",
+                                                     "Confidence":  "Medium",
+                                                     "Notes":  "The payload installs under ProgramFiles64Folder, a machine-scope location that a per-user install cannot write to."
+                                                 },
+                                                 {
+                                                     "Field":  "Detection",
+                                                     "Value":  {
+                                                                   "Kind":  "File",
+                                                                   "Path":  "%ProgramFiles%\\7-Zip",
+                                                                   "FileName":  "7z.exe",
+                                                                   "UsesWildcardPath":  false,
+                                                                   "Operator":  "Exact",
+                                                                   "Value":  "26.2.0.0",
+                                                                   "Confidence":  "Medium",
+                                                                   "Rationale":  "File detection from resolved DetectionTarget and DetectionTargetVersion evidence. Operator: Exact."
+                                                               },
+                                                     "Source":  "MsiDatabase",
+                                                     "Confidence":  "Medium",
+                                                     "Notes":  "File detection from resolved DetectionTarget and DetectionTargetVersion evidence. Operator: Exact."
+                                                 }
+                                             ],
+                        "ReturnCodeMap":  [
+                                              {
+                                                  "Code":  0,
+                                                  "Meaning":  "Success",
+                                                  "Classification":  "Success"
+                                              },
+                                              {
+                                                  "Code":  3010,
+                                                  "Meaning":  "Soft reboot required",
+                                                  "Classification":  "SuccessRebootRequired"
+                                              },
+                                              {
+                                                  "Code":  1641,
+                                                  "Meaning":  "Reboot initiated",
+                                                  "Classification":  "SuccessRebootInitiated"
+                                              },
+                                              {
+                                                  "Code":  1618,
+                                                  "Meaning":  "Another installation active",
+                                                  "Classification":  "Retry"
+                                              },
+                                              {
+                                                  "Code":  1707,
+                                                  "Meaning":  "Installation completed",
+                                                  "Classification":  "Success"
+                                              }
+                                          ],
+                        "RebootBehavior":  "NoAction",
+                        "PostInstallDelaySeconds":  0,
+                        "RunDetectionAs32Bit":  false,
+                        "Readiness":  "ReviewRequired",
+                        "BlockingFindings":  [
+
+                                             ],
+                        "SchemaVersion":  "1.0",
+                        "GeneratorVersion":  "0.1.0"
+                    },
+    "Findings":  [
+                     {
+                         "Severity":  "Info",
+                         "Code":  "MSI_ALLUSERS_AMBIGUOUS",
+                         "Message":  "MSI property ALLUSERS=2 means per-machine when elevated and per-user otherwise, so it does not determine context on its own.",
+                         "Field":  "SelectedContext"
+                     },
+                     {
+                         "Severity":  "Info",
+                         "Code":  "MSI_DETECTION_TARGET_INFERRED",
+                         "Message":  "The install directory resolved at High confidence, but choosing \u00277z.exe\u0027 as the detection target is heuristic (executable base name resembles ProductName; largest match wins); target confidence is Medium. Review the selected file before deployment.",
+                         "Field":  "DetectionTarget"
+                     },
+                     {
+                         "Severity":  "Info",
+                         "Code":  "MSI_VERSION_DIFFERS_FROM_FILE",
+                         "Message":  "The MSI ProductVersion (26.02.00.0) differs from the version of the detection target file 7z.exe (26.2.0.0). File-based detection must compare against the file version, not the ProductVersion.",
+                         "Field":  "DetectionTargetVersion"
+                     },
+                     {
+                         "Severity":  "Info",
+                         "Code":  "MSI_UPGRADE_TABLE_PRESENT",
+                         "Message":  "Related MSI products may share the UpgradeCode(s) {23170F69-40C1-2702-0000-000004000000}; review them when configuring upgrade or supersedence behaviour. An UpgradeCode is a product family identifier, not a ConfigMgr supersedence relationship.",
+                         "Field":  "UpgradeCode"
+                     }
+                 ],
+    "Readiness":  "ReviewRequired"
+}

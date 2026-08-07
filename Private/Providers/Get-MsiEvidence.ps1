@@ -287,9 +287,29 @@ function Get-MsiEvidence {
                         "The install directory resolved at {0} confidence, but choosing '{1}' as the detection target is heuristic ({2}); target confidence is {3}. Review the selected file before deployment." -f
                             $resolution.Confidence, $primary.FileName, $primary.SelectionRationale, $targetConfidence)))
 
+                    <#
+                        The install root is one of the context signals plan §8.4 asks to be
+                        weighed, and it cuts both ways.
+
+                        A user-profile root is strong evidence of a per-user install. The
+                        symmetric case is just as informative and was previously ignored: a
+                        payload landing in Program Files or ProgramData cannot be written by
+                        an unelevated per-user install, so a machine-scope root is strong
+                        evidence of a per-machine install.
+
+                        Without this, 7-Zip stalls at SelectedContext = Unknown purely
+                        because ALLUSERS=2 is ambiguous on its own, even though it installs
+                        to %ProgramFiles%. Both remain Medium: this is evidence to be
+                        corroborated, not proof, and the merger still has to agree with the
+                        other signals.
+                    #>
                     if ($resolution.IsUserScope) {
                         & $addEvidence 'SelectedContext' 'User' ([ConfidenceLevel]::Medium) (
                             "The payload installs under $($resolution.RootToken), which is inside a user profile.")
+                    }
+                    elseif ($resolution.RootToken -and $resolution.EnvironmentPath) {
+                        & $addEvidence 'SelectedContext' 'System' ([ConfidenceLevel]::Medium) (
+                            "The payload installs under $($resolution.RootToken), a machine-scope location that a per-user install cannot write to.")
                     }
                 }
             }

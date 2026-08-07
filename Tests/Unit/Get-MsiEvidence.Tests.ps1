@@ -433,6 +433,46 @@ InModuleScope PSPackageForge {
             ($result.Findings | Where-Object { $_.Code -eq 'MSI_ALLUSERS_AMBIGUOUS' }) | Should -Not -BeNullOrEmpty
         }
 
+        It 'reads a machine-scope install root as evidence of system context' {
+            <#
+                The 7-Zip baseline. ALLUSERS=2 is ambiguous on its own, but the payload
+                lands in Program Files, which an unelevated per-user install cannot write
+                to. Without this signal 7-Zip stalls at Unknown context and the native
+                baseline can never reach ReviewRequired, which plan §8.5 says it must.
+            #>
+            $database = Get-TestMsiDatabase `
+                -Properties @{ ProductName = '7-Zip'; ALLUSERS = '2'; ProductCode = '{23170F69-40C1-2702-2602-000001000000}' } `
+                -Files @([PSCustomObject] @{ File = '_7z'; Component = 'Main'; FileName = '7z.exe'; FileSize = '600000'; Version = '26.2.0.0' }) `
+                -Components @([PSCustomObject] @{ Component = 'Main'; Directory = 'INSTALLDIR'; Condition = ''; KeyPath = '_7z' }) `
+                -Directories @(
+                    [PSCustomObject] @{ Directory = 'INSTALLDIR'; Parent = 'ProgramFiles64Folder'; DefaultDir = '7-Zip' }
+                    [PSCustomObject] @{ Directory = 'ProgramFiles64Folder'; Parent = 'TARGETDIR'; DefaultDir = 'Files' }
+                )
+
+            $result = Get-MsiEvidence -Database $database
+            $record = $result.Evidence | Where-Object { $_.Field -eq 'SelectedContext' }
+
+            $record.Value      | Should -Be 'System'
+            $record.Confidence | Should -Be ([ConfidenceLevel]::Medium)
+        }
+
+        It 'does not claim system context when the root is a user profile location' {
+            # The signal must stay asymmetric in the right direction.
+            $database = Get-TestMsiDatabase `
+                -Properties @{ ProductName = 'PerUserApp' } `
+                -Files @([PSCustomObject] @{ File = 'f1'; Component = 'Main'; FileName = 'app.exe'; FileSize = '100'; Version = '1.0.0.0' }) `
+                -Components @([PSCustomObject] @{ Component = 'Main'; Directory = 'APPDIR'; Condition = ''; KeyPath = 'f1' }) `
+                -Directories @(
+                    [PSCustomObject] @{ Directory = 'APPDIR'; Parent = 'LocalAppDataFolder'; DefaultDir = 'Programs' }
+                    [PSCustomObject] @{ Directory = 'LocalAppDataFolder'; Parent = 'TARGETDIR'; DefaultDir = 'LocalApp' }
+                )
+
+            $result = Get-MsiEvidence -Database $database
+            $record = $result.Evidence | Where-Object { $_.Field -eq 'SelectedContext' }
+
+            $record.Value | Should -Be 'User'
+        }
+
         It 'reads MSIINSTALLPERUSER=1 as user context' {
             $database = Get-TestMsiDatabase -Properties @{ ProductName = 'X'; MSIINSTALLPERUSER = '1' }
 
