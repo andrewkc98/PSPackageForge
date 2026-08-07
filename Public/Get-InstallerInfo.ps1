@@ -179,10 +179,12 @@
             )
         }
 
-        # The full evidence set is carried, not just the winners: the losing records are
-        # what make a conflict finding reviewable.
-        $info.Evidence = @($resolved.Values)
-        $info.Findings = $findings.ToArray()
+        # Preserve provider observations separately from the resolved winners. A resolved
+        # winner may be a downgraded clone after a conflict; the raw records must remain
+        # inspectable exactly as their providers emitted them.
+        $info.Evidence         = $evidence.ToArray()
+        $info.ResolvedEvidence = @($resolved.Values)
+        $info.Findings         = $findings.ToArray()
 
         return $info
     }

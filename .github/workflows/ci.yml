@@ -54,15 +54,4 @@ jobs:
 
       - name: Assert no vendor installer binaries are tracked
         shell: powershell
-        run: |
-          # Plan §9.2: Examples/ carries generated output, never third-party installers.
-          # Tests/Fixtures holds only the deterministic MSIs we build ourselves.
-          $tracked = git ls-files
-          $offenders = $tracked | Where-Object {
-              $_ -match '\.(msi|exe|msix|appx|intunewin)$' -and $_ -notmatch '^Tests/Fixtures/'
-          }
-          if ($offenders) {
-              Write-Host "Vendor binaries must never be committed:`n$($offenders -join "`n")"
-              exit 1
-          }
-          Write-Host 'No vendor installer binaries tracked.'
+        run: ./.github/scripts/Test-GitHistory.ps1

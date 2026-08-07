@@ -430,13 +430,14 @@ class SignatureInfo {
     }
 
     [System.Collections.Specialized.OrderedDictionary] ToOrderedDictionary() {
-        return [ordered] @{
+        $d = [ordered] @{
             IsSigned         = $this.IsSigned
             Status           = $this.Status
             SignerSubject    = $this.SignerSubject
             SignerThumbprint = $this.SignerThumbprint
-            TimestampUtc     = $this.TimestampUtc
         }
+        if (-not [string]::IsNullOrWhiteSpace($this.TimestampUtc)) { $d['TimestampUtc'] = $this.TimestampUtc }
+        return $d
     }
 }
 
@@ -472,7 +473,10 @@ class InstallerInfo {
     [bool] $ProductCodePresent
     [bool] $SupportsMsiUninstall
 
+    # Evidence is the immutable provider audit trail. ResolvedEvidence contains one
+    # merge winner per field and may carry a conflict-driven confidence downgrade.
     [EvidenceRecord[]] $Evidence
+    [EvidenceRecord[]] $ResolvedEvidence
     [Finding[]]        $Findings
 
     InstallerInfo() {
@@ -486,15 +490,28 @@ class InstallerInfo {
         $this.ProductCodePresent   = $false
         $this.SupportsMsiUninstall = $false
         $this.Evidence             = @()
+        $this.ResolvedEvidence     = @()
         $this.Findings             = @()
     }
 
-    # Per-field provenance lookup. This is rule 2 of plan §2 made queryable.
+    # Back-compatible convenience: an unqualified lookup returns the resolved winner.
     [EvidenceRecord] GetEvidence([string] $field) {
-        foreach ($record in $this.Evidence) {
+        return $this.GetResolvedEvidence($field)
+    }
+
+    [EvidenceRecord] GetResolvedEvidence([string] $field) {
+        foreach ($record in $this.ResolvedEvidence) {
             if ($record.Field -eq $field) { return $record }
         }
         return $null
+    }
+
+    [EvidenceRecord[]] GetRawEvidence([string] $field) {
+        $records = [System.Collections.Generic.List[EvidenceRecord]]::new()
+        foreach ($record in $this.Evidence) {
+            if ($record.Field -eq $field) { $records.Add($record) }
+        }
+        return $records.ToArray()
     }
 
     [System.Collections.Specialized.OrderedDictionary] ToOrderedDictionary() {
@@ -519,6 +536,7 @@ class InstallerInfo {
             ProductCodePresent   = $this.ProductCodePresent
             SupportsMsiUninstall = $this.SupportsMsiUninstall
             Evidence             = @($this.Evidence | ForEach-Object { $_.ToOrderedDictionary() })
+            ResolvedEvidence     = @($this.ResolvedEvidence | ForEach-Object { $_.ToOrderedDictionary() })
             Findings             = @($this.Findings | ForEach-Object { $_.ToOrderedDictionary() })
         }
     }
@@ -538,6 +556,7 @@ class PackageSpec {
     [bool]              $RequiresLogonWhenUserContext
 
     [DetectionSpec[]]     $DetectionSpec
+    [EvidenceRecord[]]    $DecisionEvidence
     [ReturnCodeMapping[]] $ReturnCodeMap
     [RebootBehaviorType]  $RebootBehavior
     [int]                 $PostInstallDelaySeconds
@@ -557,6 +576,7 @@ class PackageSpec {
         $this.ContextEvidence              = @()
         $this.RequiresLogonWhenUserContext = $false
         $this.DetectionSpec                = @()
+        $this.DecisionEvidence             = @()
         $this.ReturnCodeMap                = @()
         $this.RebootBehavior               = [RebootBehaviorType]::Unknown
         $this.PostInstallDelaySeconds      = 0
@@ -598,6 +618,7 @@ class PackageSpec {
             ContextEvidence              = @($this.ContextEvidence | ForEach-Object { $_.ToOrderedDictionary() })
             RequiresLogonWhenUserContext = $this.RequiresLogonWhenUserContext
             DetectionSpec                = @($this.DetectionSpec | ForEach-Object { $_.ToOrderedDictionary() })
+            DecisionEvidence             = @($this.DecisionEvidence | ForEach-Object { $_.ToOrderedDictionary() })
             ReturnCodeMap                = @($this.ReturnCodeMap | ForEach-Object { $_.ToOrderedDictionary() })
             RebootBehavior               = $this.RebootBehavior.ToString()
             PostInstallDelaySeconds      = $this.PostInstallDelaySeconds

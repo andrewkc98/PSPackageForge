@@ -5,17 +5,12 @@
             reviewable packaging bundle.
 
         .DESCRIPTION
-            Point this at an installer and get back a bundle a human can review in two
-            minutes: identified installer type, extracted metadata with traceable
-            provenance, install and uninstall commands, a detection method with real values
-            in it, a PSADT wrapper, an .intunewin build step, a machine-readable manifest,
-            and a markdown document carrying a verify-before-deploying checklist.
-
-            NOT YET IMPLEMENTED -- build order step 8 onwards.
+            The current core milestone emits the authoritative PackageManifest.json and,
+            when detection resolves above Low confidence, Detect-Application.ps1. Later
+            roadmap renderers consume that manifest for documentation, PSADT, and Intune.
     #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-        Justification = 'Stub. The parameter surface is the published contract; the body arrives in build order step 8.')]
     [CmdletBinding(SupportsShouldProcess)]
+    [OutputType('PSPackageForge.ScaffoldResult')]
     param(
         [Parameter(Mandatory, Position = 0)]
         [ValidateNotNullOrEmpty()]
@@ -23,10 +18,63 @@
 
         [Parameter(Mandatory, Position = 1)]
         [ValidateNotNullOrEmpty()]
-        [string] $OutputPath
+        [string] $OutputPath,
+
+        [Parameter()]
+        [AllowEmptyCollection()]
+        [object[]] $AdditionalEvidence = @(),
+
+        [Parameter()]
+        [ValidateSet('Exact', 'GreaterOrEqual')]
+        [string] $DetectionOperator = 'Exact',
+
+        [Parameter()]
+        [switch] $FailOnLowConfidence
     )
 
     if ($PSCmdlet.ShouldProcess($Path, "Generate packaging scaffold into '$OutputPath'")) {
-        throw [System.NotImplementedException]::new('New-PackageScaffold is implemented in build order step 8.')
+        $installerInfo = Get-InstallerInfo -Path $Path -AdditionalEvidence $AdditionalEvidence
+        $operator = Get-ForgeEnumValue -Value $DetectionOperator -Type ([DetectionOperator]) -Default ([DetectionOperator]::Exact)
+        $packageSpec = Resolve-PackageSpec -InstallerInfo $installerInfo -DetectionOperator $operator
+
+        if (-not (Test-Path -LiteralPath $OutputPath)) {
+            [void] (New-Item -ItemType Directory -Path $OutputPath -Force)
+        }
+        $resolvedOutput = (Resolve-Path -LiteralPath $OutputPath).ProviderPath
+
+        $stagedInstaller = Join-Path $resolvedOutput $installerInfo.FileName
+        if (-not [string]::Equals($installerInfo.Path, $stagedInstaller, [StringComparison]::OrdinalIgnoreCase)) {
+            Copy-Item -LiteralPath $installerInfo.Path -Destination $stagedInstaller -Force
+        }
+        $stagedHash = (Get-FileHash -LiteralPath $stagedInstaller -Algorithm SHA256).Hash
+        if ($stagedHash -ne $installerInfo.SHA256) {
+            throw [System.IO.InvalidDataException]::new(
+                "Staged installer hash mismatch. Expected $($installerInfo.SHA256), got $stagedHash.")
+        }
+
+        $detectionResult = $null
+        if ($packageSpec.DetectionSpec.Count -eq 1 -and
+            $packageSpec.DetectionSpec[0].Confidence -ne [ConfidenceLevel]::Low) {
+            $detectionResult = New-DetectionMethod -DetectionSpec $packageSpec.DetectionSpec[0] -OutputPath $resolvedOutput
+        }
+
+        $manifestPath = Join-Path $resolvedOutput 'PackageManifest.json'
+        $manifestFile = Write-PackageManifest -InstallerInfo $installerInfo -PackageSpec $packageSpec -OutputPath $manifestPath
+
+        if ($FailOnLowConfidence -and $packageSpec.Readiness -eq [ReadinessLevel]::NeedsInput) {
+            throw [System.InvalidOperationException]::new(
+                "Package readiness is NeedsInput. Review '$($manifestFile.FullName)' for blocking findings.")
+        }
+
+        [PSCustomObject] @{
+            PSTypeName       = 'PSPackageForge.ScaffoldResult'
+            InstallerInfo    = $installerInfo
+            PackageSpec      = $packageSpec
+            ManifestPath     = $manifestFile.FullName
+            DetectionPath    = if ($null -ne $detectionResult) { $detectionResult.ScriptPath } else { $null }
+            InstallerPath    = $stagedInstaller
+            OutputPath       = $resolvedOutput
+            Readiness        = $packageSpec.Readiness
+        }
     }
 }

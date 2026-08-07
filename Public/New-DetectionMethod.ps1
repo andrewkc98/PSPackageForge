@@ -8,18 +8,49 @@
             detected, exit 0 with no output means not detected, and a non-zero exit means
             the detection mechanism itself failed.
 
-            NOT YET IMPLEMENTED -- build order step 7.
+            The supplied DetectionSpec is already resolved; this command is a pure renderer
+            and does not rediscover application information.
     #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-        Justification = 'Stub. The parameter surface is the published contract; the body arrives in build order step 7.')]
     [CmdletBinding(SupportsShouldProcess)]
+    [OutputType('PSPackageForge.DetectionRenderResult')]
     param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ValidateNotNull()]
+        [object] $DetectionSpec,
+
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
         [string] $OutputPath
     )
 
-    if ($PSCmdlet.ShouldProcess($OutputPath, 'Generate Detect-Application.ps1')) {
-        throw [System.NotImplementedException]::new('New-DetectionMethod is implemented in build order step 7.')
+    process {
+        if ($DetectionSpec -isnot [DetectionSpec]) {
+            throw [System.ArgumentException]::new(
+                "DetectionSpec must be a PSPackageForge DetectionSpec; got '$($DetectionSpec.GetType().FullName)'.",
+                'DetectionSpec')
+        }
+
+        $scriptContent = ConvertTo-DetectionScript -DetectionSpec $DetectionSpec
+        $scriptPath = if ([System.IO.Path]::GetExtension($OutputPath) -eq '.ps1') {
+            $OutputPath
+        }
+        else {
+            Join-Path $OutputPath 'Detect-Application.ps1'
+        }
+
+        if ($PSCmdlet.ShouldProcess($scriptPath, 'Generate detection script')) {
+            $parent = Split-Path -Path $scriptPath -Parent
+            if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+                [void] (New-Item -ItemType Directory -Path $parent -Force)
+            }
+            Set-Content -LiteralPath $scriptPath -Value $scriptContent -Encoding UTF8
+
+            [PSCustomObject] @{
+                PSTypeName    = 'PSPackageForge.DetectionRenderResult'
+                DetectionSpec = $DetectionSpec
+                ScriptPath    = (Resolve-Path -LiteralPath $scriptPath).ProviderPath
+                ScriptContent = $scriptContent
+            }
+        }
     }
 }

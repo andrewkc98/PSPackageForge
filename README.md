@@ -294,12 +294,11 @@ KiCad and Obsidian cover two common EXE packaging cases where installation locat
 
 PSPackageForge currently targets Windows.
 
-Supported PowerShell versions:
+Currently verified PowerShell runtime:
 
 - Windows PowerShell 5.1
-- PowerShell 7
 
-Both are tested in CI.
+PowerShell 7 compatibility remains declared in the module contract, but its CI job is intentionally deferred until that runtime is implemented and verified.
 
 Windows PowerShell 5.1 remains supported because it is still widely used in MECM environments.
 
@@ -333,14 +332,16 @@ This runs the same core checks used by CI.
 
 Current v1 progress:
 
-- [x] Module skeleton, PSScriptAnalyzer settings, CI on PowerShell 5.1 and 7
+- [x] Module skeleton, PSScriptAnalyzer settings, CI on Windows PowerShell 5.1
+- [ ] PowerShell 7 implementation and CI verification
 - [x] Type contract: `EvidenceRecord`, `InstallerInfo`, `PackageSpec`, `Finding`, `CommandSpec`
 - [x] Evidence merger, precedence, and `EVIDENCE_CONFLICT` handling
 - [x] Native MSI provider and `File → Component → Directory` path resolution
-- [ ] `PackageSpec` resolver and `ConvertTo-CommandString`
-- [ ] Detection renderer
-- [ ] Manifest, documentation, and inline validation
-- [ ] Wrapper-MSI detection for Firefox ESR
+- [x] `PackageSpec` resolver and `ConvertTo-CommandString`
+- [x] Detection renderer with detected, absent, and failure semantics
+- [x] Authoritative `PackageManifest.json` generation and core scaffold orchestration
+- [ ] Package documentation and inline scaffold validation
+- [ ] Firefox ESR wrapper regression and known-quirk integration
 - [ ] `Get-InstalledAppInfo` and discovery-data contract
 - [ ] EXE framework evidence and argument profiles
 - [ ] KiCad and Obsidian regression cases

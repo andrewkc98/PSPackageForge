@@ -158,8 +158,18 @@ function Get-MsiEvidence {
 
     if (-not $hasPayload) {
         # Decisive. An MSI that installs no files is not installing a product itself.
-        $msiKind     = [MsiKind]::Wrapper
-        $payloadType = [PayloadType]::Exe
+        $msiKind = [MsiKind]::Wrapper
+
+        if ($exeLaunchingActions.Count -gt 0) {
+            $payloadType       = [PayloadType]::Exe
+            $payloadConfidence = [ConfidenceLevel]::High
+            $payloadNotes      = 'Executable-launching custom action evidence identifies the wrapped payload as an EXE.'
+        }
+        else {
+            $payloadType       = [PayloadType]::Unknown
+            $payloadConfidence = [ConfidenceLevel]::Low
+            $payloadNotes      = 'The MSI has no installable File payload, but no evidence identifies what the wrapper launches.'
+        }
 
         $reason = if ($exeLaunchingActions.Count -gt 0) {
             "it has no File payload and runs an embedded executable via custom action(s): $(($exeLaunchingActions | ForEach-Object { $_.Action }) -join ', ')"
@@ -177,6 +187,8 @@ function Get-MsiEvidence {
         # Has real payload AND launches an embedded executable. Honest answer: mixed.
         $msiKind     = [MsiKind]::Unknown
         $payloadType = [PayloadType]::Mixed
+        $payloadConfidence = [ConfidenceLevel]::High
+        $payloadNotes      = 'The MSI has an installable file payload and executable-launching custom actions.'
 
         & $addEvidence 'MsiKind' 'Unknown' ([ConfidenceLevel]::Low) (
             'The package installs files of its own but also launches an embedded executable, so it is neither cleanly native nor cleanly a wrapper.')
@@ -188,12 +200,14 @@ function Get-MsiEvidence {
     else {
         $msiKind     = [MsiKind]::Native
         $payloadType = [PayloadType]::Msi
+        $payloadConfidence = [ConfidenceLevel]::High
+        $payloadNotes      = 'The MSI contains a normal installable file payload.'
 
         & $addEvidence 'MsiKind' 'Native' ([ConfidenceLevel]::High) (
             "Normal payload ($($database.Files.Count) file(s), $($database.Features.Count) feature(s)) with no embedded executable custom actions.")
     }
 
-    & $addEvidence 'PayloadType' $payloadType.ToString() ([ConfidenceLevel]::High) $null
+    & $addEvidence 'PayloadType' $payloadType.ToString() $payloadConfidence $payloadNotes
 
     # A ProductCode can exist syntactically without producing installed-product behaviour.
     $supportsMsiUninstall = $productCodePresent -and $msiKind -eq [MsiKind]::Native
@@ -241,7 +255,8 @@ function Get-MsiEvidence {
         $componentsById = @{}
         foreach ($component in $database.Components) { $componentsById[$component.Component] = $component }
 
-        $primary = Select-MsiPrimaryFile -Database $database
+        $primary          = Select-MsiPrimaryFile -Database $database
+        $targetConfidence = $null
 
         if ($primary) {
             $component = $componentsById[$primary.Component]
@@ -255,8 +270,22 @@ function Get-MsiEvidence {
                     & $addEvidence 'InstallLocation' $resolution.EnvironmentPath $resolution.Confidence (
                         "Resolved through File -> Component -> Directory as $($resolution.TokenPath).")
 
-                    & $addEvidence 'DetectionTarget' ('{0}\{1}' -f $resolution.EnvironmentPath, $primary.FileName) $resolution.Confidence (
-                        "Primary payload file '$($primary.File)' from the MSI File table.")
+                    # Directory resolution and target selection answer different questions.
+                    # Even a High-confidence directory chain cannot make a heuristic choice
+                    # among multiple files High confidence.
+                    $targetConfidence = if ($resolution.Confidence -eq [ConfidenceLevel]::Low) {
+                        [ConfidenceLevel]::Low
+                    }
+                    else {
+                        [ConfidenceLevel]::Medium
+                    }
+
+                    & $addEvidence 'DetectionTarget' ('{0}\{1}' -f $resolution.EnvironmentPath, $primary.FileName) $targetConfidence (
+                        "Selected '$($primary.File)' from the MSI File table using this heuristic: $($primary.SelectionRationale)")
+
+                    $findings.Add((New-ForgeFinding -Severity Info -Code 'MSI_DETECTION_TARGET_INFERRED' -Field 'DetectionTarget' -Message (
+                        "The install directory resolved at {0} confidence, but choosing '{1}' as the detection target is heuristic ({2}); target confidence is {3}. Review the selected file before deployment." -f
+                            $resolution.Confidence, $primary.FileName, $primary.SelectionRationale, $targetConfidence)))
 
                     if ($resolution.IsUserScope) {
                         & $addEvidence 'SelectedContext' 'User' ([ConfidenceLevel]::Medium) (
@@ -270,8 +299,9 @@ function Get-MsiEvidence {
             # The File table version is what Get-Item .VersionInfo will report on disk, and
             # it is regularly NOT the same as the MSI ProductVersion. Detection must compare
             # against the file, so the file's version is what gets recorded.
-            & $addEvidence 'DetectionTargetVersion' $primary.Version ([ConfidenceLevel]::High) (
-                "File version of '$($primary.FileName)' from the MSI File table.")
+            $versionConfidence = if ($null -ne $targetConfidence) { $targetConfidence } else { [ConfidenceLevel]::Medium }
+            & $addEvidence 'DetectionTargetVersion' $primary.Version $versionConfidence (
+                "File version of the heuristically selected detection target '$($primary.FileName)' from the MSI File table.")
 
             $productVersion = "$($properties['ProductVersion'])".Trim()
             if ($productVersion -and (ConvertTo-ForgeComparableValue -Value $productVersion) -ne (ConvertTo-ForgeComparableValue -Value $primary.Version)) {
@@ -356,18 +386,26 @@ function Select-MsiPrimaryFile {
         })
 
         if ($named.Count -gt 0) {
-            return ($named | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1)
+            $selected = $named | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1
+            $selected | Add-Member -NotePropertyName SelectionRationale -NotePropertyValue 'executable base name resembles ProductName; largest match wins' -Force
+            return $selected
         }
     }
 
     $versionedExe = @($executables | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Version) })
     if ($versionedExe.Count -gt 0) {
-        return ($versionedExe | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1)
+        $selected = $versionedExe | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1
+        $selected | Add-Member -NotePropertyName SelectionRationale -NotePropertyValue 'largest versioned executable' -Force
+        return $selected
     }
 
     if ($executables.Count -gt 0) {
-        return ($executables | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1)
+        $selected = $executables | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1
+        $selected | Add-Member -NotePropertyName SelectionRationale -NotePropertyValue 'largest executable; no versioned executable was available' -Force
+        return $selected
     }
 
-    return ($withSize | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1)
+    $selected = $withSize | Sort-Object -Property SizeBytes -Descending | Select-Object -First 1
+    $selected | Add-Member -NotePropertyName SelectionRationale -NotePropertyValue 'largest payload file; no executable was available' -Force
+    return $selected
 }

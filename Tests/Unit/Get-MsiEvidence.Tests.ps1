@@ -103,6 +103,15 @@ InModuleScope PSPackageForge {
             $record.Confidence | Should -Be ([ConfidenceLevel]::High)
         }
 
+        It 'caps the heuristically selected detection target at Medium confidence' {
+            $record = $script:Result.Evidence | Where-Object { $_.Field -eq 'DetectionTarget' }
+
+            $record.Confidence | Should -Be ([ConfidenceLevel]::Medium)
+            $record.Notes      | Should -BeLike '*heuristic*'
+            ($script:Result.Findings | Where-Object { $_.Code -eq 'MSI_DETECTION_TARGET_INFERRED' }) |
+                Should -Not -BeNullOrEmpty
+        }
+
         It 'reads architecture from the summary Template, not from the host' {
             # The fixture is an Intel (32-bit) package. The machine running this test is
             # almost certainly x64, so a host-derived answer would be wrong here.
@@ -214,6 +223,23 @@ InModuleScope PSPackageForge {
             Get-EvidenceValue $result 'MsiKind'              | Should -Be 'Native'
             Get-EvidenceValue $result 'SupportsMsiUninstall' | Should -BeTrue
             Get-EvidenceValue $result 'InstallLocation'      | Should -Be '%ProgramFiles%\7-Zip'
+        }
+
+        It 'does not claim an EXE payload without executable-launch evidence' {
+            $database = Get-TestMsiDatabase `
+                -Properties @{ ProductName = 'Payloadless'; ProductCode = '{22222222-2222-2222-2222-222222222222}' } `
+                -Files @() `
+                -Components @() `
+                -Directories @() `
+                -Binaries @() `
+                -CustomActions @()
+
+            $result = Get-MsiEvidence -Database $database
+            $record = $result.Evidence | Where-Object { $_.Field -eq 'PayloadType' }
+
+            Get-EvidenceValue $result 'MsiKind'     | Should -Be 'Wrapper'
+            Get-EvidenceValue $result 'PayloadType' | Should -Be 'Unknown'
+            $record.Confidence                      | Should -Be ([ConfidenceLevel]::Low)
         }
 
         It 'blocks rather than guessing when a package has payload AND runs an embedded exe' {

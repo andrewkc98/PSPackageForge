@@ -24,6 +24,8 @@ coverage.xml
 
 # --- Local AI review / handoff notes ---
 /CODEX_REVIEW.md
+/PSPackageForge-Plan-v3_1.md
+/CLAUDE_CODEX_HANDOFF.md
 
 # --- Editor / tooling / OS noise ---
 .claude/

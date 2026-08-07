@@ -40,11 +40,10 @@
         $info.SignerSubject    = $signature.SignerCertificate.Subject
         $info.SignerThumbprint = $signature.SignerCertificate.Thumbprint
 
-        if ($signature.TimeStamperCertificate) {
-            # Recorded in UTC with a round-trip format so the manifest does not vary with
-            # the generating machine's locale.
-            $info.TimestampUtc = $signature.SignerCertificate.NotBefore.ToUniversalTime().ToString('o')
-        }
+        # Get-AuthenticodeSignature exposes the timestamping certificate, but not a
+        # trustworthy signing instant. In particular, SignerCertificate.NotBefore is the
+        # certificate-validity boundary, not the file's signing time. Leave TimestampUtc
+        # absent until a real signing timestamp can be extracted and verified.
     }
     catch {
         $info.IsSigned = $false
