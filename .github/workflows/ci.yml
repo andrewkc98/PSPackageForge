@@ -9,29 +9,19 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.name }}
+    name: Windows PowerShell 5.1
     runs-on: windows-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # 5.1 is non-negotiable: it is what MECM environments actually run.
-          - name: Windows PowerShell 5.1
-            shell: powershell
-          - name: PowerShell 7
-            shell: pwsh
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Report PowerShell edition
-        shell: ${{ matrix.shell }}
+        shell: powershell
         run: $PSVersionTable | Format-List
 
       - name: Install pinned dependencies
-        shell: ${{ matrix.shell }}
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -41,14 +31,14 @@ jobs:
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force
 
       - name: Build (analyze + test)
-        shell: ${{ matrix.shell }}
+        shell: powershell
         run: ./build.ps1 -Output Detailed -TestResultPath TestResults.xml
 
       - name: Publish test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.shell }}
+          name: test-results-powershell-5.1
           path: TestResults.xml
           if-no-files-found: warn
 
@@ -63,7 +53,7 @@ jobs:
           fetch-depth: 0
 
       - name: Assert no vendor installer binaries are tracked
-        shell: pwsh
+        shell: powershell
         run: |
           # Plan §9.2: Examples/ carries generated output, never third-party installers.
           # Tests/Fixtures holds only the deterministic MSIs we build ourselves.
