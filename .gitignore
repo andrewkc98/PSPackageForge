@@ -22,6 +22,9 @@ Staging/
 TestResults.xml
 coverage.xml
 
+# --- Local AI review / handoff notes ---
+/CODEX_REVIEW.md
+
 # --- Editor / tooling / OS noise ---
 .claude/
 .vs/
