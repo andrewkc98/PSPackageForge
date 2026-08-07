@@ -628,6 +628,23 @@ $script:RequiredPSADTVersion     = $script:ForgeManifestData.PrivateData.PSPacka
 $script:ConfigRoot    = Join-Path $PSScriptRoot 'Config'
 $script:TemplateRoot  = Join-Path $PSScriptRoot 'Templates'
 
+<#
+    A constraint worth knowing before adding a public function.
+
+    Classes defined here are visible to everything dot-sourced below, and to anything
+    running in module scope -- which includes every Private function and any Pester test
+    using InModuleScope. They are NOT visible to a caller who ran a plain Import-Module,
+    because Windows PowerShell 5.1 only exports module classes via `using module`.
+
+    Parameter types and [OutputType()] on an EXPORTED function are resolved in the caller's
+    type context. So a public function must NOT declare a module class in its signature:
+
+        BAD   [OutputType([InstallerInfo])]  param([EvidenceRecord[]] $Evidence)
+        GOOD  [OutputType('InstallerInfo')]  param([object[]] $Evidence)   # validated inside
+
+    Private functions are called only from module scope and use the class types directly.
+#>
+
 # Private first: public functions depend on them, never the reverse.
 foreach ($scope in @('Private', 'Public')) {
     $scopeRoot = Join-Path $PSScriptRoot $scope
