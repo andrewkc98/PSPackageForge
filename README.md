@@ -315,7 +315,7 @@ The ConfigMgr console is not required. PSPackageForge does not depend on `Config
 ### Clone and import
 
 ```powershell
-git clone https://github.com/andrewkctucker/PSPackageForge
+git clone https://github.com/andrewkc98/PSPackageForge
 Import-Module ./PSPackageForge/PSPackageForge.psd1
 ```
 
