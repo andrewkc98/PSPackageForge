@@ -3,13 +3,18 @@
 [![CI](https://github.com/andrewkctucker/PSPackageForge/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewkctucker/PSPackageForge/actions/workflows/ci.yml)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
 
-**An offline MECM/Intune packaging scaffolder that refuses to guess.**
+PSPackageForge is an offline PowerShell scaffolder for MECM and Intune application packaging.
 
-Point one cmdlet at an installer and get back a packaging bundle a human can review in two
-minutes: identified installer type, extracted metadata with traceable per-field provenance,
-install and uninstall commands, a detection method with real values in it, a PSADT wrapper,
-an `.intunewin` build step, a machine-readable manifest, and a markdown document carrying an
-explicit verify-before-deploying checklist.
+Give it an installer and it builds a reviewable packaging bundle containing:
+
+- installer identification and metadata
+- per-field evidence and provenance
+- install and uninstall commands
+- application detection
+- PSADT package scaffolding
+- an `.intunewin` build step
+- a machine-readable package manifest
+- package documentation with a verification checklist
 
 > **Status: in development.** See [Build progress](#build-progress).
 
@@ -17,236 +22,468 @@ explicit verify-before-deploying checklist.
 
 ## Why this exists
 
-Packaging an application for MECM is a repetitive research task with high error rates. For
-every app you rediscover the same things: is it MSI or EXE, which installer framework, what
-is the silent flag, what is the product code, what is the *real* uninstall string, and what
-detection method actually resolves post-install.
+Application packaging involves a lot of repeated investigation.
 
-Get any one of them wrong and you get a deployment that appears to succeed and reports
-failure (`0x87D00324`), or an uninstall that can never run (`1619`).
+For most applications you need to determine:
+
+- whether the installer is MSI or EXE
+- which installer framework it uses
+- the correct silent arguments
+- whether a usable product code exists
+- the actual uninstall command
+- where the application installs
+- which detection method will work after installation
+- whether the application needs system or user context
+
+A mistake in any of these can result in an installation that completes successfully but fails detection, or an uninstall command that only fails once MECM tries to use it.
+
+Typical examples include `0x87D00324` for failed post-install detection and `1619` when an invalid MSI uninstall path is used.
 
 ### The KiCad case
 
-KiCad is an NSIS installer that registers no product GUID and installs to a **versioned**
-subfolder. MECM's auto-generated uninstall command is wrong, and the failure is silent until
-someone tries to remove the app.
+KiCad is one of the applications that led to this project.
 
-**What MECM generates for you:**
+It uses an NSIS installer, has no usable MSI product registration, and installs into a versioned directory.
+
+A generated package that assumes MSI-style uninstall and detection will therefore be wrong.
+
+Example:
 
 ```text
 Uninstall command : msiexec /x {00000000-0000-0000-0000-000000000000} /qn
-Detection          : MSI product code (auto-filled from installer metadata)
-Result             : 1619 -- the package could not be opened. The MSI does not exist on
-                     the client post-install, and NSIS never registered a product anyway.
+Detection          : MSI product code
+Result             : 1619
 ```
 
-**What PSPackageForge produces:**
+The MSI referenced by that command does not exist on the installed client, and NSIS did not register the application as a Windows Installer product.
+
+PSPackageForge instead produces information such as:
 
 ```text
 Install command    : KiCad-Setup.exe /S /allusers
 Uninstall command  : "C:\Program Files\KiCad\10.0\Uninstall.exe" /S
 Detection          : File version of C:\Program Files\KiCad\*\bin\kicad.exe
-                     (wildcard, because the install path is versioned)
 Install behaviour  : Install for system
 Readiness          : ReviewRequired
-Finding            : [Info] CONTEXT_FLAG_NOT_BEHAVIOR -- /allusers is an NSIS MultiUser
-                     plugin argument. It does NOT set the MECM installation behaviour.
-                     Set User Experience -> Installation behaviour -> Install for system.
+Finding            : [Info] CONTEXT_FLAG_NOT_BEHAVIOR
 ```
 
-That last finding is the whole point. `/S /allusers` alone did not fix the real deployment;
-changing the MECM installation behaviour did. An installer flag and a MECM installation
-behaviour are different concepts, and a tool that conflates them produces a package that
-looks right and fails in the field.
+The related finding records that `/allusers` is an NSIS MultiUser plugin argument. MECM's installation behaviour still needs to be configured separately as **Install for system**.
+
+This distinction matters because the installer arguments and the MECM execution context are separate settings.
 
 ---
 
-## The design property everything else follows from
+## Design
 
-**The tool must never emit a confident wrong answer.** A scaffolder that produces a
-plausible-looking but broken uninstall string is worse than no scaffolder.
+The project follows three main rules.
 
-Three rules follow:
+### Facts and deployment decisions are separate
 
-1. **Facts and decisions are different things.** `InstallerInfo` answers *what is this
-   file?*. `PackageSpec` answers *how should we deploy it?*. Mixing them is how a discovered
-   value silently becomes a deployment choice.
-2. **Every resolved field knows where it came from.** Per-field provenance, not one
-   confidence label for the whole package.
-3. **Low confidence has operational consequences.** An unresolved critical decision blocks
-   runnable output. It does not get a default.
+`InstallerInfo` describes the installer itself.
 
-PSPackageForge is a **scaffolder, not a package-certification engine**. `Readiness` never
-reaches "ready to deploy" — the ceiling is `ReviewRequired`. Knowing exactly where automation
-ends and human validation begins is the feature.
+`PackageSpec` describes how the application should be packaged and deployed.
+
+Keeping these separate prevents installer metadata from automatically becoming a deployment decision.
+
+### Every important value has provenance
+
+Package-wide confidence is too broad for packaging work.
+
+Different values may come from different sources, so PSPackageForge tracks evidence per field.
+
+For example:
+
+```text
+ProductVersion    -> MSI database
+Architecture      -> PE metadata
+UninstallCommand  -> reference-machine discovery
+InstallContext    -> known application behaviour
+```
+
+### Low-confidence decisions require review
+
+Critical unresolved values affect package readiness.
+
+A package with unresolved install commands, uninstall commands, context, or detection information is kept in a state that requires additional input.
+
+The highest readiness state produced by PSPackageForge is:
+
+```text
+ReviewRequired
+```
+
+The generated package still needs to be tested before deployment.
 
 ---
 
 ## Evidence and provenance
 
-Providers emit evidence. They never construct a finished answer.
+Discovery providers return evidence that is merged before the final package specification is resolved.
 
 ```text
-  MSI provider     ─┐
-  PE provider      ─┤
-  Registry / JSON  ─┼─▶  Evidence merger  ─▶  InstallerInfo  ─▶  PackageSpec resolver
-  Known quirks     ─┤
-  (Sandbox, later) ─┘
+MSI provider     ─┐
+PE provider      ─┤
+Registry / JSON  ─┼─▶ Evidence merger ─▶ InstallerInfo ─▶ PackageSpec resolver
+Known quirks     ─┤
+Sandbox, later   ─┘
 ```
 
-Every meaningful value carries an `EvidenceRecord`: the field, the value, the **source**, a
-**confidence**, and notes.
-
-**Merge precedence** (highest wins):
+Each meaningful value is associated with an `EvidenceRecord` containing:
 
 ```text
-UserOverride > DiscoveryJson > Registry > MsiDatabase > KnownQuirk > PeMetadata > Inferred
+Field
+Value
+Source
+Confidence
+Notes
 ```
 
-> `Registry` is ranked just below `DiscoveryJson`. A live registry read is direct observation
-> of an installed product, so it outranks static MSI metadata; but an exported discovery file
-> is the artefact a human reviewed and committed, so it wins on a tie. The rest of the chain
-> is as specified in the design document.
+Current evidence precedence is:
 
-When two **High**-confidence sources disagree on a **critical** field — install command,
-uninstall command, install location, selected context, detection target — the merger applies
-precedence, then **emits an `EVIDENCE_CONFLICT` finding and downgrades that field to Medium**.
-It never resolves silently.
+```text
+UserOverride
+    >
+DiscoveryJson
+    >
+Registry
+    >
+MsiDatabase
+    >
+KnownQuirk
+    >
+PeMetadata
+    >
+Inferred
+```
 
-Corroboration is not conflict: two sources reporting the same ProductCode in different letter
-case agree. Two sources reporting `1.0` and `1.0.0.0` do **not** — version padding is a real
-difference, and hiding it would hide exactly the question you need to answer.
+A live registry value represents direct observation from an installed application. Exported discovery data ranks slightly higher because it is intended to be reviewed before being reused for package generation.
+
+If two High-confidence sources disagree on a critical field, precedence still determines which value is selected, but PSPackageForge also:
+
+1. emits an `EVIDENCE_CONFLICT` finding
+2. records the disagreement
+3. downgrades the selected field to Medium confidence
+
+Critical fields include:
+
+```text
+InstallCommand
+UninstallCommand
+InstallLocation
+SelectedContext
+DetectionTarget
+```
+
+Equivalent values from multiple sources count as corroboration.
+
+Values such as `1.0` and `1.0.0.0` remain distinct so that version normalization stays visible.
 
 ---
 
-## Correctness details that matter
+## Detection scripts
 
-**Detection scripts distinguish "absent" from "broken".** One contract serves both MECM and
-Intune:
+Generated detection scripts use the same basic contract for MECM and Intune.
 
 | State | Exit code | STDOUT |
-|---|---|---|
-| Detected | `0` | any non-empty output |
-| Not detected | `0` | nothing |
-| Detection mechanism failed | non-zero | error to STDERR |
+|---|---:|---|
+| Detected | `0` | Non-empty |
+| Not detected | `0` | Empty |
+| Detection failed | Non-zero | Error |
 
-Non-zero does **not** mean absent — it means the detection itself failed, which ConfigMgr
-treats as unknown. Using `exit 1` for "not detected" produces misleading compliance data
-across a fleet.
+An absent application is therefore different from a detection script that could not complete its check.
 
-**Commands are structured, never strings.** Nothing internal carries
-`"C:\setup.exe /S /allusers"`. A `CommandSpec` holds executable, argument list, working
-directory, and expected exit codes; rendering to a quoted string happens exactly once, at the
-output boundary.
-
-**Raw versions are preserved.** `ProductVersionRaw` is exactly what the installer reported.
-Normalisation happens only at a render boundary that needs it, and records a finding when
-padding was applied. Windows Installer's `ProductVersion` comparison honours only the first
-three numeric fields.
-
-**Architecture is modelled, never inferred from the host.** Whether a detection script runs
-32-bit is an explicit deployment-type option, not a default to architect around. Generated
-detection scripts are redirection-safe regardless.
-
-**`Win32_Product` is never used.** Querying it triggers a reconfigure of every installed MSI
-on the machine. This warning appears in every generated document.
+Detection failure is reported as an error rather than as normal application absence.
 
 ---
 
-## The four regression cases
+## Command handling
 
-The first is the *normal* path and is built first — the other three only mean something once
-the normal case works.
+Commands are represented internally as structured data.
 
-| App | Proves |
+Instead of storing:
+
+```text
+"C:\setup.exe /S /allusers"
+```
+
+PSPackageForge uses a `CommandSpec` containing values such as:
+
+```text
+Executable
+ArgumentList
+WorkingDirectory
+ExpectedExitCodes
+```
+
+The command is converted into its final quoted string when an output renderer needs it.
+
+This keeps quoting and argument handling in one place.
+
+---
+
+## Version handling
+
+`ProductVersionRaw` preserves the value reported by the installer.
+
+Normalization is performed only when an output format requires it.
+
+If a version is changed for rendering, PSPackageForge records a finding so the generated output can be traced back to the original value.
+
+Windows Installer `ProductVersion` comparisons use the first three numeric fields, which is handled separately from file-version detection.
+
+---
+
+## Architecture and registry views
+
+Application architecture is part of the package model.
+
+PSPackageForge tracks:
+
+```text
+x86
+x64
+Arm64
+Neutral
+Unknown
+```
+
+Architecture is used when resolving filesystem paths, registry views, requirements, and detection settings.
+
+The architecture of the packaging workstation is not used as a substitute for application architecture.
+
+Detection-script 32-bit execution is treated as an explicit deployment setting.
+
+---
+
+## Win32_Product
+
+PSPackageForge does not use:
+
+```powershell
+Get-CimInstance Win32_Product
+Get-WmiObject Win32_Product
+```
+
+Application discovery uses the Windows uninstall registry instead.
+
+The generated package documentation also includes a warning about `Win32_Product`, since querying it can trigger Windows Installer consistency checks against installed MSI applications.
+
+---
+
+## Regression applications
+
+Four applications are used to exercise different parts of the packaging model.
+
+| Application | Coverage |
 |---|---|
-| **7-Zip** (MSI) | Native MSI resolution, architecture handling, and that a normal app produces `ReviewRequired` with no blocking findings. No quirk entry — if 7-Zip needs one, the general MSI path is wrong. |
-| **Firefox ESR** | `ContainerType = Msi`, `PayloadType = Exe`, `MsiKind = Wrapper`. ProductCode present but `SupportsMsiUninstall = $false`. Offline MSI analysis must not claim it found `firefox.exe` in the `File` table — the wrapper has no such payload. |
-| **KiCad** (NSIS) | Versioned-path resolution, and that an installer flag is not the same concept as a MECM installation behaviour. |
-| **Obsidian** (Squirrel) | Genuine per-user context, only-when-logged-on, and per-user registry discovery. |
+| **7-Zip MSI** | Native MSI resolution, architecture handling, and the normal MSI path. It has no quirk entry. |
+| **Firefox ESR** | MSI wrapper containing an EXE payload. Exercises `ContainerType = Msi`, `PayloadType = Exe`, and `MsiKind = Wrapper`. |
+| **KiCad** | NSIS, versioned installation paths, and the distinction between installer arguments and MECM installation behaviour. |
+| **Obsidian** | Per-user Squirrel installation, logged-on-user requirements, and per-user registry discovery. |
+
+7-Zip is implemented first because it represents the standard MSI case.
+
+Firefox ESR then tests wrapper-MSI handling.
+
+KiCad and Obsidian cover two common EXE packaging cases where installation location and execution context require additional handling.
 
 ---
 
 ## Requirements
 
-- Windows. MSI parsing, registry views, and Authenticode have no cross-platform equivalent
-  worth faking.
-- **Windows PowerShell 5.1 or PowerShell 7.** Both are tested in CI. 5.1 is non-negotiable —
-  it is what MECM environments actually run.
-- Optional: `PSAppDeployToolkit` v4 (pinned) for `New-PSADTPackage`;
-  `IntuneWinAppUtil.exe` for `New-IntuneWinPackage`. Neither is downloaded automatically.
+PSPackageForge currently targets Windows.
 
-**The ConfigMgr console is not required and must not be installed.** The module never imports
-or depends on `ConfigurationManager.psd1`.
+Supported PowerShell versions:
+
+- Windows PowerShell 5.1
+- PowerShell 7
+
+Both are tested in CI.
+
+Windows PowerShell 5.1 remains supported because it is still widely used in MECM environments.
+
+Optional tooling:
+
+- `PSAppDeployToolkit` v4 for `New-PSADTPackage`
+- `IntuneWinAppUtil.exe` for `New-IntuneWinPackage`
+
+Optional tools are not downloaded automatically.
+
+The ConfigMgr console is not required. PSPackageForge does not depend on `ConfigurationManager.psd1`.
+
+### Clone and import
 
 ```powershell
 git clone https://github.com/andrewkctucker/PSPackageForge
 Import-Module ./PSPackageForge/PSPackageForge.psd1
 ```
 
-Run the same checks CI runs:
+### Run the project checks
 
-```bash
+```powershell
 ./build.ps1
 ```
+
+This runs the same core checks used by CI.
 
 ---
 
 ## Build progress
 
-Implemented against the locked v1 scope:
+Current v1 progress:
 
-- [x] Module skeleton, PSScriptAnalyzer settings, CI on 5.1 + 7
-- [x] Type contract — `EvidenceRecord`, `InstallerInfo`, `PackageSpec`, `Finding`, `CommandSpec`
-- [x] Evidence merger, precedence, and `EVIDENCE_CONFLICT` behaviour
+- [x] Module skeleton, PSScriptAnalyzer settings, CI on PowerShell 5.1 and 7
+- [x] Type contract: `EvidenceRecord`, `InstallerInfo`, `PackageSpec`, `Finding`, `CommandSpec`
+- [x] Evidence merger, precedence, and `EVIDENCE_CONFLICT` handling
 - [ ] Native MSI provider and `File → Component → Directory` path resolution
 - [ ] `PackageSpec` resolver and `ConvertTo-CommandString`
 - [ ] Detection renderer
-- [ ] Manifest, document, inline validation
-- [ ] Wrapper-MSI detection (Firefox ESR)
-- [ ] `Get-InstalledAppInfo` and the discovery contract
+- [ ] Manifest, documentation, and inline validation
+- [ ] Wrapper-MSI detection for Firefox ESR
+- [ ] `Get-InstalledAppInfo` and discovery-data contract
 - [ ] EXE framework evidence and argument profiles
-- [ ] KiCad and Obsidian regressions
-- [ ] `New-PSADTPackage`, `New-IntuneWinPackage`
+- [ ] KiCad and Obsidian regression cases
+- [ ] `New-PSADTPackage`
+- [ ] `New-IntuneWinPackage`
 
 ---
 
-## Roadmap — deliberately not in v1
+## Roadmap
 
-Every item below is a good idea that was deferred on purpose. A visible, reasoned roadmap
-reads better than a tool that tried to do everything.
+The following items are planned outside the current v1 scope.
 
-1. **`-DiscoverInSandbox`** — Windows Sandbox empirical discovery: snapshot, install
-   silently, re-snapshot, diff. The headline feature when it lands. The provider
-   architecture exists so it drops in without touching downstream stages.
-2. **`Test-PackageScaffold`** — standalone static validator. v1 does a minimal subset inline.
-3. **`MecmDeploymentSpec.json` / `IntuneWin32Spec.json`** — target-specific renderers off the
-   manifest. Cheap once the manifest exists, which is exactly why they can wait.
-4. **winget-pkgs fallback** — community metadata as an evidence provider when local detection
-   returns `Unknown`.
-5. **`New-CMApplicationFromScaffold`** — MECM Application creation. Least demonstrable, needs
-   console plus site plus credentials, highest risk.
-6. **PSADT v3 templates.**
-7. **Formal JSON Schema validation.** v1 versions both contracts but validates structurally.
-8. **Loading unloaded `HKEY_USERS` hives** for profiles that are not signed in.
+### Windows Sandbox discovery
 
-**Out of scope entirely:** Microsoft Graph / Intune Win32 LOB upload, MSIX repackaging,
-App-V, driver packages, MSP patch handling, a GUI, and automatic tooling downloads.
+```powershell
+-DiscoverInSandbox
+```
+
+The planned workflow is:
+
+```text
+snapshot
+install silently
+snapshot again
+compare changes
+```
+
+Sandbox discovery will use the same evidence-provider interface as the existing discovery methods.
+
+### Standalone package validation
+
+```powershell
+Test-PackageScaffold
+```
+
+v1 performs a smaller set of validation checks during package generation. A dedicated validator is planned separately.
+
+### MECM and Intune deployment specifications
+
+Planned machine-readable output:
+
+```text
+MecmDeploymentSpec.json
+IntuneWin32Spec.json
+```
+
+These will be generated from the package manifest.
+
+### winget-pkgs evidence provider
+
+Community package metadata may be used as an additional evidence source when local discovery cannot identify an installer.
+
+### MECM application creation
+
+```powershell
+New-CMApplicationFromScaffold
+```
+
+Direct MECM application creation is planned after the offline package model is established.
+
+This feature will require the ConfigMgr console, a site connection, and the appropriate credentials.
+
+### PSADT v3 templates
+
+PSADT v4 is the current target. v3 compatibility may be added later.
+
+### Formal JSON Schema validation
+
+v1 versions the package and discovery contracts and performs structural validation.
+
+Formal JSON Schema validation is planned for a later release.
+
+### Unloaded HKEY_USERS profiles
+
+Current per-user discovery covers available user registry data.
+
+Loading registry hives for profiles that are not currently signed in is planned separately.
 
 ---
 
-## Opsec
+## Out of scope
 
-No employer infrastructure identifiers appear anywhere in this repository — no site server
-FQDN, site code, console folder paths, internal hostnames, usernames, or domains.
+The following are outside the project scope:
 
-`Config/settings.example.psd1` ships placeholders only. Real values belong in a gitignored
-`Config/settings.psd1`. Generated discovery JSON deliberately omits hostname, username, and
-domain so it can be committed to `Examples/`.
+- Microsoft Graph upload of Intune Win32 applications
+- MSIX repackaging
+- App-V
+- driver packages
+- MSP patch handling
+- GUI development
+- automatic tooling downloads
 
-`Examples/` contains **generated output only**. Vendor installers are never committed; each
-example records the source filename, SHA256, vendor download URL, generation date, and tool
-versions so it is reproducible without redistributing third-party software. CI enforces this.
+---
+
+## Repository safety
+
+Employer infrastructure details are excluded from the repository.
+
+This includes:
+
+- site server FQDNs
+- site codes
+- internal hostnames
+- console folder paths
+- usernames
+- internal domains
+
+`Config/settings.example.psd1` contains placeholder values.
+
+Local settings belong in:
+
+```text
+Config/settings.psd1
+```
+
+That file is excluded from Git.
+
+Generated discovery JSON also omits hostname, username, and domain information so example discovery data can be committed safely.
+
+---
+
+## Examples
+
+`Examples/` contains generated package output.
+
+Vendor installers are excluded from the repository.
+
+Each example records:
+
+```text
+source installer filename
+SHA256
+vendor download URL
+generation date
+PSPackageForge version
+tool versions
+```
+
+This keeps the examples reproducible without storing third-party installer binaries in the repository.
+
+CI checks for this as part of the project validation.
+
+---
 
 ## Licence
 
