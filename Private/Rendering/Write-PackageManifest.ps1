@@ -1,4 +1,4 @@
-function Write-PackageManifest {
+﻿function Write-PackageManifest {
     <#
         Writes the authoritative PackageManifest.json. All downstream renderers consume
         the same InstallerInfo and PackageSpec represented here.

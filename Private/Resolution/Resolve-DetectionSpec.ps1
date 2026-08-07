@@ -1,4 +1,4 @@
-function Resolve-DetectionSpec {
+﻿function Resolve-DetectionSpec {
     <#
         Resolves one unambiguous v1 detection rule. Multiple-rule boolean semantics are
         deliberately not invented; the resolver produces a single primary rule.

@@ -1,4 +1,4 @@
-<#
+﻿<#
     Public-boundary coverage for Get-InstallerInfo. The command is deliberately invoked
     outside InModuleScope so these assertions exercise the object a real caller receives.
 #>

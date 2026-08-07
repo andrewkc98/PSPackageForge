@@ -103,7 +103,11 @@ Describe 'Source guardrails' {
     }
 
     It 'contains no unresolved template tokens in source' {
+        # Tests are excluded for the same reason as the Win32_Product guardrail: a test that
+        # asserts the renderer leaves no token behind has to be able to write one down.
+        # Templates/ legitimately contains tokens too, and is not PowerShell source.
         $offenders = @($script:SourceFiles |
+            Where-Object { $_.FullName -notmatch '\\Tests\\' } |
             Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '\{\{[A-Za-z0-9_]+\}\}' } |
             ForEach-Object { $_.Name })
 

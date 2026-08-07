@@ -1,4 +1,4 @@
-function ConvertTo-PowerShellSingleQuotedLiteral {
+﻿function ConvertTo-PowerShellSingleQuotedLiteral {
     [CmdletBinding()]
     [OutputType([string])]
     param(

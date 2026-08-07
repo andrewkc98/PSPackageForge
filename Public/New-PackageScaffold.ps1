@@ -5,9 +5,14 @@
             reviewable packaging bundle.
 
         .DESCRIPTION
-            The current core milestone emits the authoritative PackageManifest.json and,
-            when detection resolves above Low confidence, Detect-Application.ps1. Later
-            roadmap renderers consume that manifest for documentation, PSADT, and Intune.
+            Emits the authoritative PackageManifest.json, PackageDocument.md and, when
+            detection resolves above Low confidence, Detect-Application.ps1. Before it
+            returns, it runs Test-ScaffoldOutput as a self-check on its own emitted files --
+            unresolved template tokens, generated PowerShell that fails to parse, a manifest
+            referencing a missing file, an oversized detection script, or a staged-installer
+            hash mismatch. Any such finding is folded back into the manifest and document
+            before the final result is returned. Later roadmap renderers (PSADT, IntuneWin)
+            consume the same manifest.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType('PSPackageForge.ScaffoldResult')]
@@ -61,6 +66,26 @@
         $manifestPath = Join-Path $resolvedOutput 'PackageManifest.json'
         $manifestFile = Write-PackageManifest -InstallerInfo $installerInfo -PackageSpec $packageSpec -OutputPath $manifestPath
 
+        $documentResult = New-PackageDocument -ManifestPath $manifestFile.FullName
+
+        # Self-check the emitted files against their own manifest before returning. A
+        # failure here means the renderers produced something inconsistent with what they
+        # just wrote, not a judgement about the target application.
+        $validationFindings = @(Test-ScaffoldOutput -OutputPath $resolvedOutput -ManifestPath $manifestFile.FullName)
+
+        if ($validationFindings.Count -gt 0) {
+            $installerInfo.Findings = @($installerInfo.Findings) + $validationFindings
+
+            $blocking = @($validationFindings | Where-Object { $_.IsBlocking() })
+            if ($blocking.Count -gt 0) {
+                $packageSpec.BlockingFindings = @($packageSpec.BlockingFindings) + $blocking
+                $null = $packageSpec.RecalculateReadiness()
+            }
+
+            $manifestFile = Write-PackageManifest -InstallerInfo $installerInfo -PackageSpec $packageSpec -OutputPath $manifestPath
+            $documentResult = New-PackageDocument -ManifestPath $manifestFile.FullName
+        }
+
         if ($FailOnLowConfidence -and $packageSpec.Readiness -eq [ReadinessLevel]::NeedsInput) {
             throw [System.InvalidOperationException]::new(
                 "Package readiness is NeedsInput. Review '$($manifestFile.FullName)' for blocking findings.")
@@ -71,6 +96,7 @@
             InstallerInfo    = $installerInfo
             PackageSpec      = $packageSpec
             ManifestPath     = $manifestFile.FullName
+            DocumentPath     = if ($null -ne $documentResult) { $documentResult.DocumentPath } else { $null }
             DetectionPath    = if ($null -ne $detectionResult) { $detectionResult.ScriptPath } else { $null }
             InstallerPath    = $stagedInstaller
             OutputPath       = $resolvedOutput

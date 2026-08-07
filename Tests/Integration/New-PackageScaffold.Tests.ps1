@@ -1,4 +1,4 @@
-<# Public orchestration boundary for the core manifest/detection milestone. #>
+﻿<# Public orchestration boundary for the core manifest/detection milestone. #>
 
 Describe 'New-PackageScaffold core output' {
 

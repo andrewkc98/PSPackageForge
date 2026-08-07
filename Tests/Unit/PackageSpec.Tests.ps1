@@ -1,4 +1,4 @@
-<#
+﻿<#
     Build-order steps 6 and 7: deployment resolution and the single command-render boundary.
 #>
 

@@ -1,4 +1,4 @@
-function Get-DefaultReturnCodeMap {
+﻿function Get-DefaultReturnCodeMap {
     [CmdletBinding()]
     [OutputType([ReturnCodeMapping])]
     param()

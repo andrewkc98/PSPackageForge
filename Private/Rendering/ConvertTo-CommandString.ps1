@@ -1,4 +1,4 @@
-function ConvertTo-WindowsCommandLineToken {
+﻿function ConvertTo-WindowsCommandLineToken {
     <#
         Implements the Windows CommandLineToArgvW/CRT quoting convention. Backslashes only
         need special handling when they precede a quote or the closing quote.
