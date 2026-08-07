@@ -1,6 +1,6 @@
 # PSPackageForge
 
-[![CI](https://github.com/andrewkctucker/PSPackageForge/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewkctucker/PSPackageForge/actions/workflows/ci.yml)
+[![CI](https://github.com/andrewkc98/PSPackageForge/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewkc98/PSPackageForge/actions/workflows/ci.yml)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
 
 PSPackageForge is an offline PowerShell scaffolder for MECM and Intune application packaging.
@@ -336,7 +336,7 @@ Current v1 progress:
 - [x] Module skeleton, PSScriptAnalyzer settings, CI on PowerShell 5.1 and 7
 - [x] Type contract: `EvidenceRecord`, `InstallerInfo`, `PackageSpec`, `Finding`, `CommandSpec`
 - [x] Evidence merger, precedence, and `EVIDENCE_CONFLICT` handling
-- [ ] Native MSI provider and `File → Component → Directory` path resolution
+- [x] Native MSI provider and `File → Component → Directory` path resolution
 - [ ] `PackageSpec` resolver and `ConvertTo-CommandString`
 - [ ] Detection renderer
 - [ ] Manifest, documentation, and inline validation

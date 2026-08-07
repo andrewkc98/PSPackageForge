@@ -34,8 +34,8 @@
     PrivateData          = @{
         PSData = @{
             Tags         = @('MECM', 'ConfigMgr', 'SCCM', 'Intune', 'Packaging', 'PSADT', 'MSI', 'Deployment', 'Windows')
-            ProjectUri   = 'https://github.com/andrewkctucker/PSPackageForge'
-            LicenseUri   = 'https://github.com/andrewkctucker/PSPackageForge/blob/main/LICENSE'
+            ProjectUri   = 'https://github.com/andrewkc98/PSPackageForge'
+            LicenseUri   = 'https://github.com/andrewkc98/PSPackageForge/blob/main/LICENSE'
             ReleaseNotes = 'Initial development release. Offline scaffolding only; see the roadmap in README.md for deferred features.'
         }
 
