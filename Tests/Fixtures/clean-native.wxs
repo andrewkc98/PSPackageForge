@@ -1,0 +1,19 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Fixture Native" Manufacturer="PSPackageForge Fixtures"
+           Version="1.0.0.0" UpgradeCode="f9ed75a9-df56-47dd-b8f4-8792b55c3c27">
+    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="MainFeature">
+      <ComponentRef Id="MainComponent" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="FixtureNative">
+        <Component Id="MainComponent" Guid="858083c1-e0c6-4395-9e57-044a1c048e71">
+          <File Id="MainExe" Source="dummy.exe" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>

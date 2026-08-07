@@ -1,0 +1,31 @@
+# --- Opsec: real environment values never get committed (see README §Opsec) ---
+Config/settings.psd1
+
+# --- Vendor installer binaries are NEVER committed (plan §9.2) ---
+Installers/
+*.msi
+*.exe
+*.msix
+*.appx
+*.intunewin
+
+# ...except the deterministic test fixtures, which are committed with provenance
+!Tests/Fixtures/*.msi
+!Tests/Fixtures/dummy.exe
+!Tests/Fixtures/framework-stubs/*
+
+# --- Build / scratch output ---
+Output/
+Staging/
+*.wixpdb
+*.wixobj
+TestResults.xml
+coverage.xml
+
+# --- Editor / tooling / OS noise ---
+.claude/
+.vs/
+.vscode/
+*.user
+Thumbs.db
+desktop.ini

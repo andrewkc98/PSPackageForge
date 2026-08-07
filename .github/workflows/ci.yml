@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 5.1 is non-negotiable: it is what MECM environments actually run.
+          - name: Windows PowerShell 5.1
+            shell: powershell
+          - name: PowerShell 7
+            shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report PowerShell edition
+        shell: ${{ matrix.shell }}
+        run: $PSVersionTable | Format-List
+
+      - name: Install pinned dependencies
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester           -RequiredVersion 5.7.1  -Force -SkipPublisherCheck -AllowClobber
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force
+
+      - name: Build (analyze + test)
+        shell: ${{ matrix.shell }}
+        run: ./build.ps1 -Output Detailed -TestResultPath TestResults.xml
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.shell }}
+          path: TestResults.xml
+          if-no-files-found: warn
+
+  opsec:
+    name: Opsec scan
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert no vendor installer binaries are tracked
+        shell: pwsh
+        run: |
+          # Plan §9.2: Examples/ carries generated output, never third-party installers.
+          # Tests/Fixtures holds only the deterministic MSIs we build ourselves.
+          $tracked = git ls-files
+          $offenders = $tracked | Where-Object {
+              $_ -match '\.(msi|exe|msix|appx|intunewin)$' -and $_ -notmatch '^Tests/Fixtures/'
+          }
+          if ($offenders) {
+              Write-Host "Vendor binaries must never be committed:`n$($offenders -join "`n")"
+              exit 1
+          }
+          Write-Host 'No vendor installer binaries tracked.'
