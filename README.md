@@ -340,7 +340,7 @@ Current v1 progress:
 - [x] `PackageSpec` resolver and `ConvertTo-CommandString`
 - [x] Detection renderer with detected, absent, and failure semantics
 - [x] Authoritative `PackageManifest.json` generation and core scaffold orchestration
-- [ ] Package documentation and inline scaffold validation
+- [x] Package documentation and inline scaffold validation
 - [ ] Firefox ESR wrapper regression and known-quirk integration
 - [ ] `Get-InstalledAppInfo` and discovery-data contract
 - [ ] EXE framework evidence and argument profiles

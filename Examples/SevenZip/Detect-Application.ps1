@@ -22,20 +22,32 @@ try {
             $detected = $true
         }
         'Exact' {
-            $actual = $candidate.VersionInfo.FileVersion
-            if ([string]::IsNullOrWhiteSpace($actual)) {
+            # The recorded rule value is the MSI File table's binary dotted-quad version, not
+            # the arbitrary FileVersion string resource -- those two routinely disagree (e.g.
+            # binary '23.1.0.0' vs string '23.1'). Build the on-disk binary version the same
+            # way the rule value was recorded. FileVersionRaw is not guaranteed present on
+            # 5.1, so the four Part properties are used instead.
+            $vi = $candidate.VersionInfo
+            $actual = [version]::new($vi.FileMajorPart, $vi.FileMinorPart, $vi.FileBuildPart, $vi.FilePrivatePart)
+            if ($actual -eq [version]::new(0, 0, 0, 0) -and [string]::IsNullOrWhiteSpace($vi.FileVersion)) {
                 throw "The detection target '$($candidate.FullName)' has no file version."
             }
-            $detected = $actual -eq '26.2.0.0'
+            # [version] equality treats a missing component as -1, so '23.1' -ne '23.1.0.0'
+            # even though they mean the same version. Pad the required value to four parts
+            # before comparing; $actual is already four parts by construction above.
+            $requiredRaw = [version]::Parse('26.2.0.0')
+            $required = [version]::new($requiredRaw.Major, $requiredRaw.Minor, [Math]::Max($requiredRaw.Build, 0), [Math]::Max($requiredRaw.Revision, 0))
+            $detected = $actual -eq $required
         }
         'GreaterOrEqual' {
-            $actual = $candidate.VersionInfo.FileVersion
-            if ([string]::IsNullOrWhiteSpace($actual)) {
+            $vi = $candidate.VersionInfo
+            $actual = [version]::new($vi.FileMajorPart, $vi.FileMinorPart, $vi.FileBuildPart, $vi.FilePrivatePart)
+            if ($actual -eq [version]::new(0, 0, 0, 0) -and [string]::IsNullOrWhiteSpace($vi.FileVersion)) {
                 throw "The detection target '$($candidate.FullName)' has no file version."
             }
-            $actualVersion   = [version]::Parse($actual)
-            $requiredVersion = [version]::Parse('26.2.0.0')
-            $detected = $actualVersion -ge $requiredVersion
+            $requiredRaw = [version]::Parse('26.2.0.0')
+            $required = [version]::new($requiredRaw.Major, $requiredRaw.Minor, [Math]::Max($requiredRaw.Build, 0), [Math]::Max($requiredRaw.Revision, 0))
+            $detected = $actual -ge $required
         }
         default {
             throw "Unsupported detection operator: 'Exact'"
