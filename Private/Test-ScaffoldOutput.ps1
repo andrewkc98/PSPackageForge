@@ -33,9 +33,29 @@
         Where-Object { $_.Extension -in @('.ps1', '.md', '.json') })
 
     # ---- No unresolved template tokens in any emitted file --------------------------------
+    # Only a double-brace placeholder whose name is one PackageDocument.md.template actually
+    # declares counts as an unresolved token. Any other double-brace-shaped text is otherwise
+    # indistinguishable from legitimate reviewed content -- e.g. an installer-derived string
+    # that happens to contain literal curly braces (ConvertTo-DocumentText escapes those, but
+    # escaped text still *contains* '{' and '}' characters, just not an adjacent, unescaped
+    # brace pair in the common case). The known-name list is read from the template itself,
+    # not duplicated here, so it can never drift from what the renderer actually emits tokens
+    # for.
+    $documentTemplatePath = Join-Path $script:TemplateRoot 'PackageDocument.md.template'
+    $knownTokenNames = @()
+    if (Test-Path -LiteralPath $documentTemplatePath) {
+        $documentTemplateContent = Get-Content -LiteralPath $documentTemplatePath -Raw
+        $knownTokenNames = @(
+            [regex]::Matches($documentTemplateContent, '\{\{([A-Za-z0-9_]+)\}\}') |
+                ForEach-Object { $_.Groups[1].Value } |
+                Select-Object -Unique
+        )
+    }
+
     foreach ($file in $textFiles) {
         $content = Get-Content -LiteralPath $file.FullName -Raw
-        $tokenMatches = [regex]::Matches($content, '\{\{[A-Za-z0-9_]+\}\}')
+        $tokenMatches = @([regex]::Matches($content, '\{\{([A-Za-z0-9_]+)\}\}') |
+            Where-Object { $knownTokenNames -contains $_.Groups[1].Value })
         if ($tokenMatches.Count -gt 0) {
             $names = ($tokenMatches | ForEach-Object { $_.Value } | Select-Object -Unique) -join ', '
             $findings.Add((New-ForgeFinding -Severity Blocking -Code 'SCAFFOLD_UNRESOLVED_TOKEN' -Message (

@@ -45,9 +45,24 @@ function ConvertTo-DocumentText {
     $text = "$Value".Trim()
     if ([string]::IsNullOrWhiteSpace($text)) { return '(not resolved)' }
 
-    # Markdown table cells cannot contain a raw newline or an unescaped pipe.
+    # Markdown table cells cannot contain a raw newline.
     $text = $text -replace '\r?\n', ' '
-    $text = $text -replace '\|', '\|'
+
+    # Installer-controlled strings (ProductName, Manufacturer, signer subject, paths, ...)
+    # reach PackageDocument.md through this function and only this function -- a malicious
+    # installer must not be able to inject Markdown/HTML formatting, links, headings, or a
+    # literal double-brace token placeholder into the human review document. Backslash first,
+    # so none of the escaping introduced below is itself reinterpreted; then every
+    # Markdown/HTML-active character this template relies on: emphasis/lists (` * _),
+    # links/refs ([ ]), raw HTML (< >), headings (#), the brace pair that would otherwise
+    # read as a template placeholder ({ }), and table-cell pipes (|). Values rendered inside
+    # fenced code blocks (install and uninstall commands) do NOT go through this function --
+    # see Format-DocumentCommand.
+    $text = $text.Replace('\', '\\')
+    foreach ($special in @('`', '*', '_', '[', ']', '<', '>', '#', '{', '}', '|')) {
+        $text = $text.Replace($special, '\' + $special)
+    }
+
     return $text
 }
 
@@ -129,7 +144,21 @@ function Format-DocumentCommand {
     if ($Command.ExpectedExitCodes) { $expectedExitCodes = @($Command.ExpectedExitCodes | ForEach-Object { [int] $_ }) }
 
     $spec = [CommandSpec]::new([string] $Command.Executable, [string[]] $argumentList, [int[]] $expectedExitCodes)
-    return ConvertTo-CommandString -CommandSpec $spec
+    $commandText = ConvertTo-CommandString -CommandSpec $spec
+
+    # This renders inside a fenced ```text code block in the template, where Markdown code
+    # fences are literal: backslash-escaping is NOT honoured there and would just corrupt a
+    # command line a reviewer is meant to copy-paste verbatim. So ConvertTo-DocumentText's
+    # escaping does not apply here. The one thing that must still be defused is a value
+    # (executable path or argument, potentially vendor-controlled via UninstallString
+    # evidence) that closes the fence early. A Markdown fence closes on a line of 3+ backticks,
+    # so break up any run of 3+ backticks with a zero-width space -- invisible when rendered,
+    # but it keeps the run from ever being contiguous. Nothing else in the command text is
+    # touched.
+    return [regex]::Replace($commandText, '`{3,}', {
+        param($match)
+        ($match.Value.ToCharArray() -join [char] 0x200B)
+    })
 }
 
 
@@ -341,17 +370,25 @@ function ConvertTo-PackageDocumentContent {
         PROVENANCE_TABLE    = Format-DocumentProvenanceTable $installer.ResolvedEvidence $installer.Evidence
     }
 
-    $content = $template
-    foreach ($key in $tokens.Keys) {
-        $content = $content.Replace('{{' + $key + '}}', $tokens[$key])
-    }
-
-    # A pure renderer must never let an un-filled token reach the reviewer.
-    $unresolved = [regex]::Matches($content, '\{\{[A-Za-z0-9_]+\}\}')
-    if ($unresolved.Count -gt 0) {
-        $names = ($unresolved | ForEach-Object { $_.Value } | Select-Object -Unique) -join ', '
-        throw [System.InvalidOperationException]::new("PackageDocument template has unresolved tokens: $names")
-    }
+    # Single-pass substitution over the TEMPLATE only. The old iterative .Replace() loop
+    # re-scanned the growing output after every token, so a substituted value shaped like
+    # another token's own double-brace placeholder (e.g. an installer's own ProductName
+    # embedding the SHA256 placeholder's syntax) got substituted again, and a value
+    # containing an earlier token's syntax could trip the unresolved-token check. A
+    # MatchEvaluator sees each placeholder exactly once, in the original template text, and
+    # never re-examines text that came from a value. Validation moves to the template side:
+    # any token the template references that is not in $tokens throws immediately, which
+    # subsumes the old post-substitution scan -- and that scan would in any case have
+    # false-positived on legitimate escaped installer text (ConvertTo-DocumentText's brace
+    # escaping means a raw installer value can no longer produce an unescaped {{...}} anyway).
+    $content = [regex]::Replace($template, '\{\{([A-Za-z0-9_]+)\}\}', {
+        param($match)
+        $tokenName = $match.Groups[1].Value
+        if (-not $tokens.Contains($tokenName)) {
+            throw [System.InvalidOperationException]::new("PackageDocument template references unknown token: {{$tokenName}}")
+        }
+        return $tokens[$tokenName]
+    })
 
     return $content
 }

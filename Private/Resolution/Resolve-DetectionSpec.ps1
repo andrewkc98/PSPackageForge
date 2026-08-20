@@ -26,12 +26,27 @@
         $rule.Confidence       = $targetRecord.Confidence
 
         if ($null -ne $versionRecord -and -not [string]::IsNullOrWhiteSpace("$($versionRecord.Value)")) {
-            $rule.Operator = $VersionOperator
-            $rule.Value    = "$($versionRecord.Value)"
-            if ([int] $versionRecord.Confidence -lt [int] $rule.Confidence) {
-                $rule.Confidence = $versionRecord.Confidence
+            $versionText   = "$($versionRecord.Value)"
+            $parsedVersion = $null
+
+            # A version-comparison rule must never be emitted from a value that cannot even be
+            # parsed at generation time -- that would ship a rule the client-side script can
+            # only fail on. Demote to existence-only and let DETECTION_LOW_CONFIDENCE stop the
+            # scaffold until reviewed evidence supplies a parseable version.
+            if ([version]::TryParse($versionText, [ref] $parsedVersion)) {
+                $rule.Operator = $VersionOperator
+                $rule.Value    = $versionText
+                if ([int] $versionRecord.Confidence -lt [int] $rule.Confidence) {
+                    $rule.Confidence = $versionRecord.Confidence
+                }
+                $rule.Rationale = "File detection from resolved DetectionTarget and DetectionTargetVersion evidence. Operator: $VersionOperator."
             }
-            $rule.Rationale = "File detection from resolved DetectionTarget and DetectionTargetVersion evidence. Operator: $VersionOperator."
+            else {
+                $rule.Operator   = [DetectionOperator]::Exists
+                $rule.Value      = $null
+                $rule.Confidence = [ConfidenceLevel]::Low
+                $rule.Rationale  = "DetectionTargetVersion value '$versionText' could not be parsed as a System.Version; demoted to existence-only detection pending reviewed evidence."
+            }
         }
         else {
             $rule.Operator  = [DetectionOperator]::Exists

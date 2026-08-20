@@ -98,6 +98,112 @@ InModuleScope PSPackageForge {
                 [Text.Encoding]::UTF8.GetByteCount($content) | Should -BeLessThan 32768
             }
         }
+
+        It 'builds the File/Exact and File/GreaterOrEqual actual version from the binary FileXPart properties, not the FileVersion string (H1)' {
+            $rule = [DetectionSpec]::new()
+            $rule.Kind     = [DetectionKind]::File
+            $rule.Path     = 'C:\Program Files\App'
+            $rule.FileName = 'app.exe'
+            $rule.Operator = [DetectionOperator]::Exact
+            $rule.Value    = '1.2.3.4'
+
+            $content = ConvertTo-DetectionScript $rule
+
+            $content | Should -Match 'FileMajorPart'
+            $content | Should -Match 'FileMinorPart'
+            $content | Should -Match 'FileBuildPart'
+            $content | Should -Match 'FilePrivatePart'
+            # The bug this fixes was comparing the arbitrary FileVersion string resource
+            # directly; that comparison must be gone from the generated script entirely.
+            $content | Should -Not -Match 'VersionInfo\.FileVersion\s*-eq'
+        }
+
+        It 'detects an Exact file-version rule from the binary version even when the FileVersion string resource differs (H1 regression)' {
+            $target = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            if (-not (Test-Path -LiteralPath $target)) {
+                Set-ItResult -Skipped -Because 'powershell.exe was not found at the expected System32 path.'
+                return
+            }
+
+            $vi = (Get-Item -LiteralPath $target).VersionInfo
+            $binaryVersion = [version]::new($vi.FileMajorPart, $vi.FileMinorPart, $vi.FileBuildPart, $vi.FilePrivatePart)
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind       = [DetectionKind]::File
+            $rule.Path       = Split-Path -Path $target -Parent
+            $rule.FileName   = Split-Path -Path $target -Leaf
+            $rule.Operator   = [DetectionOperator]::Exact
+            $rule.Value      = $binaryVersion.ToString()
+            $rule.Confidence = [ConfidenceLevel]::High
+
+            $scriptPath = Join-Path $TestDrive 'detect-exact-binary-version.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+            $output = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+
+            $LASTEXITCODE | Should -Be 0
+            $output       | Should -Not -BeNullOrEmpty
+        }
+
+        It 'detects a GreaterOrEqual file-version rule using zero-padded version comparison' {
+            $target = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            if (-not (Test-Path -LiteralPath $target)) {
+                Set-ItResult -Skipped -Because 'powershell.exe was not found at the expected System32 path.'
+                return
+            }
+
+            $vi = (Get-Item -LiteralPath $target).VersionInfo
+            # A 3-part required value (no Revision) exercises the -1 -> 0 padding directly.
+            $lowerVersion = [version]::new($vi.FileMajorPart, $vi.FileMinorPart, 0)
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind       = [DetectionKind]::File
+            $rule.Path       = Split-Path -Path $target -Parent
+            $rule.FileName   = Split-Path -Path $target -Leaf
+            $rule.Operator   = [DetectionOperator]::GreaterOrEqual
+            $rule.Value      = $lowerVersion.ToString()
+            $rule.Confidence = [ConfidenceLevel]::High
+
+            $scriptPath = Join-Path $TestDrive 'detect-ge-binary-version.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+            $output = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+
+            $LASTEXITCODE | Should -Be 0
+            $output       | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Describe 'Resolve-DetectionSpec' {
+
+        It 'demotes an unparseable DetectionTargetVersion to Exists with Low confidence (M4)' {
+            $info = [InstallerInfo]::new()
+            $info.ResolvedEvidence = @(
+                [EvidenceRecord]::new('DetectionTarget', 'C:\Program Files\App\app.exe', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High),
+                [EvidenceRecord]::new('DetectionTargetVersion', '26.02 beta', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High)
+            )
+
+            $rule = Resolve-DetectionSpec -InstallerInfo $info
+
+            $rule.Kind       | Should -Be ([DetectionKind]::File)
+            $rule.Operator   | Should -Be ([DetectionOperator]::Exists)
+            $rule.Confidence | Should -Be ([ConfidenceLevel]::Low)
+            $rule.Value      | Should -BeNullOrEmpty
+            $rule.Rationale  | Should -Match ([regex]::Escape('26.02 beta'))
+            $rule.Rationale  | Should -Match 'could not be parsed'
+        }
+
+        It 'keeps version-comparison behavior for a parseable DetectionTargetVersion' {
+            $info = [InstallerInfo]::new()
+            $info.ResolvedEvidence = @(
+                [EvidenceRecord]::new('DetectionTarget', 'C:\Program Files\App\app.exe', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High),
+                [EvidenceRecord]::new('DetectionTargetVersion', '1.2.3.4', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High)
+            )
+
+            $rule = Resolve-DetectionSpec -InstallerInfo $info
+
+            $rule.Operator   | Should -Be ([DetectionOperator]::Exact)
+            $rule.Value      | Should -Be '1.2.3.4'
+            $rule.Confidence | Should -Be ([ConfidenceLevel]::High)
+        }
     }
 
     Describe 'Write-PackageManifest' {
@@ -199,6 +305,54 @@ InModuleScope PSPackageForge {
             $content | Should -Match 'will \*\*not\*\* uninstall the product'
         }
 
+        It 'escapes Markdown/HTML-active characters from installer-derived text before it reaches the document (M3)' {
+            $maliciousInfo = [InstallerInfo]::new()
+            $maliciousInfo.FileName      = 'setup.exe'
+            $maliciousInfo.SHA256        = ('0' * 64)
+            $maliciousInfo.FileSize      = 1
+            $maliciousInfo.ContainerType = [ContainerType]::Exe
+            $maliciousInfo.ProductName   = '# Findings: none | {{SHA256}} `code` <script>'
+            $maliciousInfo.Evidence         = @()
+            $maliciousInfo.ResolvedEvidence = @()
+
+            $maliciousSpec = [PackageSpec]::new()
+            $maliciousSpec.InstallCommand   = [CommandSpec]::new('setup.exe', @('/S'))
+            $maliciousSpec.UninstallCommand = [CommandSpec]::new('setup.exe', @('/S', '/uninstall'))
+            $maliciousSpec.SelectedContext  = [InstallContext]::System
+            $maliciousSpec.DetectionSpec    = @([DetectionSpec]::new())
+            $null = $maliciousSpec.RecalculateReadiness()
+
+            $manifestPath = Join-Path $TestDrive 'malicious\PackageManifest.json'
+            Write-PackageManifest -InstallerInfo $maliciousInfo -PackageSpec $maliciousSpec -OutputPath $manifestPath
+            New-PackageDocument -ManifestPath $manifestPath | Out-Null
+
+            $content = Get-Content -LiteralPath (Join-Path (Split-Path $manifestPath -Parent) 'PackageDocument.md') -Raw
+
+            # Every Markdown/HTML-active character escaped, in order, with a preceding backslash.
+            $content | Should -Match ([regex]::Escape('\# Findings: none \| \{\{SHA256\}\} \`code\` \<script\>'))
+            $content | Should -Not -Match '<script>'
+            $content | Should -Not -Match '\{\{SHA256\}\}'
+        }
+
+        It 'throws naming the token when the template references one the renderer does not provide' {
+            $originalTemplateRoot = $script:TemplateRoot
+            try {
+                $badTemplateRoot = Join-Path $TestDrive 'bad-template'
+                [void] (New-Item -ItemType Directory -Path $badTemplateRoot -Force)
+                Set-Content -LiteralPath (Join-Path $badTemplateRoot 'PackageDocument.md.template') -Value 'Hello {{NOT_A_REAL_TOKEN}}'
+                $script:TemplateRoot = $badTemplateRoot
+
+                $manifestPath = Join-Path $TestDrive 'badtemplate\PackageManifest.json'
+                Write-PackageManifest -InstallerInfo $script:Info -PackageSpec $script:Spec -OutputPath $manifestPath
+                $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+
+                { ConvertTo-PackageDocumentContent -Manifest $manifest } | Should -Throw '*NOT_A_REAL_TOKEN*'
+            }
+            finally {
+                $script:TemplateRoot = $originalTemplateRoot
+            }
+        }
+
         It 'does not write the document under -WhatIf' {
             $manifestPath = Join-Path $TestDrive 'whatif\PackageManifest.json'
             Write-PackageManifest -InstallerInfo $script:Info -PackageSpec $script:Spec -OutputPath $manifestPath
@@ -253,12 +407,81 @@ InModuleScope PSPackageForge {
 
             $manifestPath = Join-Path $outputPath 'PackageManifest.json'
             Write-PackageManifest -InstallerInfo $script:Info -PackageSpec $script:Spec -OutputPath $manifestPath
-            Set-Content -LiteralPath (Join-Path $outputPath 'PackageDocument.md') -Value 'Left over {{TOKEN}}.'
+            # Must be a real PackageDocument.md.template token name -- the check now only
+            # flags {{TOKEN}} occurrences that match the template's own declared tokens.
+            Set-Content -LiteralPath (Join-Path $outputPath 'PackageDocument.md') -Value 'Left over {{PRODUCT_NAME}}.'
 
             $findings = @(Test-ScaffoldOutput -OutputPath $outputPath -ManifestPath $manifestPath)
             $findings.Code | Should -Contain 'SCAFFOLD_UNRESOLVED_TOKEN'
             ($findings | Where-Object { $_.Code -eq 'SCAFFOLD_UNRESOLVED_TOKEN' }).Severity |
                 Should -Be ([FindingSeverity]::Blocking)
+        }
+
+        It 'does not flag {{...}}-shaped text whose name is not a real PackageDocument.md.template token' {
+            $outputPath = Join-Path $TestDrive 'fake-token'
+            [void] (New-Item -ItemType Directory -Path $outputPath -Force)
+
+            $stagedInstaller = Join-Path $outputPath 'native-clean.msi'
+            Copy-Item -LiteralPath $fixture -Destination $stagedInstaller
+
+            $manifestPath = Join-Path $outputPath 'PackageManifest.json'
+            Write-PackageManifest -InstallerInfo $script:Info -PackageSpec $script:Spec -OutputPath $manifestPath
+            # {{NOT_A_REAL_TOKEN}} is not a name the template declares, so this is
+            # indistinguishable from reviewed content and must not be flagged.
+            Set-Content -LiteralPath (Join-Path $outputPath 'PackageDocument.md') -Value 'See {{NOT_A_REAL_TOKEN}} above.'
+
+            # Reading .Code off a possibly-empty typed array throws under Set-StrictMode
+            # -Version Latest, so assert on .Count instead: this scaffold is otherwise
+            # self-consistent, so the safe assertion is simply zero findings.
+            $findings = @(Test-ScaffoldOutput -OutputPath $outputPath -ManifestPath $manifestPath)
+            $findings.Count | Should -Be 0
+        }
+
+        It 'does not flag the rendered document when installer-derived text literally contains escaped token syntax (L1)' {
+            $outputPath = Join-Path $TestDrive 'tricky-token'
+            [void] (New-Item -ItemType Directory -Path $outputPath -Force)
+
+            $stagedInstaller = Join-Path $outputPath 'setup.exe'
+            Set-Content -LiteralPath $stagedInstaller -Value 'fixture' -Encoding Ascii
+            $stagedHash = (Get-FileHash -LiteralPath $stagedInstaller -Algorithm SHA256).Hash
+
+            $trickyInfo = [InstallerInfo]::new()
+            $trickyInfo.FileName      = 'setup.exe'
+            $trickyInfo.SHA256        = $stagedHash
+            $trickyInfo.FileSize      = (Get-Item -LiteralPath $stagedInstaller).Length
+            $trickyInfo.ContainerType = [ContainerType]::Exe
+            # Contains literal token syntax for a *different* real token (SHA256). The old
+            # iterative substitution would have let this get rewritten into the actual hash
+            # when the SHA256 key was processed; the new single-pass substitution must not.
+            $trickyInfo.ProductName   = 'Contains {{SHA256}} literally'
+            $trickyInfo.Evidence         = @()
+            $trickyInfo.ResolvedEvidence = @()
+
+            $trickySpec = [PackageSpec]::new()
+            $trickySpec.InstallCommand   = [CommandSpec]::new('setup.exe', @('/S'))
+            $trickySpec.UninstallCommand = [CommandSpec]::new('setup.exe', @('/S', '/uninstall'))
+            $trickySpec.SelectedContext  = [InstallContext]::System
+            $trickySpec.DetectionSpec    = @([DetectionSpec]::new())
+            $null = $trickySpec.RecalculateReadiness()
+
+            $manifestPath = Join-Path $outputPath 'PackageManifest.json'
+            Write-PackageManifest -InstallerInfo $trickyInfo -PackageSpec $trickySpec -OutputPath $manifestPath
+            New-PackageDocument -ManifestPath $manifestPath | Out-Null
+
+            $content = Get-Content -LiteralPath (Join-Path $outputPath 'PackageDocument.md') -Raw
+            $content | Should -Match ([regex]::Escape('Contains \{\{SHA256\}\} literally'))
+            $content | Should -Not -Match ('Contains ' + [regex]::Escape($stagedHash) + ' literally')
+
+            # PackageManifest.json is raw, unescaped installer data (not a rendered document),
+            # so it legitimately still contains the literal '{{SHA256}}' text and is expected
+            # to be flagged -- that is orthogonal to this fix. What L1 guarantees is that the
+            # *rendered* PackageDocument.md, which the escaping and single-pass substitution
+            # actually govern, is never flagged.
+            $findings = @(Test-ScaffoldOutput -OutputPath $outputPath -ManifestPath $manifestPath)
+            $documentTokenFindings = @($findings | Where-Object {
+                $_.Code -eq 'SCAFFOLD_UNRESOLVED_TOKEN' -and $_.Message -like '*PackageDocument.md*'
+            })
+            $documentTokenFindings.Count | Should -Be 0
         }
 
         It 'flags a generated .ps1 that does not parse' {
