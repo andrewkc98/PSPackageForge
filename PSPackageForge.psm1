@@ -646,7 +646,7 @@ $script:ManifestSchemaVersion    = $script:ForgeManifestData.PrivateData.PSPacka
 $script:DiscoverySchemaVersion   = $script:ForgeManifestData.PrivateData.PSPackageForge.DiscoverySchemaVersion
 $script:RequiredPSADTVersion     = $script:ForgeManifestData.PrivateData.PSPackageForge.RequiredPSADTVersion
 
-$script:ConfigRoot    = Join-Path $PSScriptRoot 'Config' # Roadmap: Config\known-quirks.psd1 arrives with build-order step 9 and does not exist yet.
+$script:ConfigRoot    = Join-Path $PSScriptRoot 'Config' # Holds known-quirks.psd1 (build-order step 9).
 $script:TemplateRoot  = Join-Path $PSScriptRoot 'Templates'
 
 <#

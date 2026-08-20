@@ -341,7 +341,7 @@ Current v1 progress:
 - [x] Detection renderer with detected, absent, and failure semantics
 - [x] Authoritative `PackageManifest.json` generation and core scaffold orchestration
 - [x] Package documentation and inline scaffold validation
-- [ ] Firefox ESR wrapper regression and known-quirk integration
+- [x] Firefox ESR wrapper regression and known-quirk integration
 - [ ] `Get-InstalledAppInfo` and discovery-data contract
 - [ ] EXE framework evidence and argument profiles
 - [ ] KiCad and Obsidian regression cases

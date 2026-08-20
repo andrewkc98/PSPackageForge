@@ -147,6 +147,18 @@
             }
         }
 
+        <#
+            Known quirks fill gaps a provider deliberately refused to answer (e.g. a
+            wrapper MSI's InstallLocation -- see Get-MsiEvidence). EvidenceSource.KnownQuirk
+            ranks below MsiDatabase, so this can only supply what real observation left
+            empty; it never outvotes one. It also ranks below AdditionalEvidence sources
+            (DiscoveryJson, UserOverride), which still win over a canned quirk below. Must
+            run before the merge, and matches against the raw evidence gathered above.
+        #>
+        $quirkResult = Get-KnownQuirkEvidence -Evidence $evidence.ToArray()
+        foreach ($record in $quirkResult.Evidence) { $evidence.Add($record) }
+        foreach ($finding in $quirkResult.Findings) { $findings.Add($finding) }
+
         foreach ($record in $AdditionalEvidence) {
             if ($record -isnot [EvidenceRecord]) {
                 throw [System.ArgumentException]::new(
