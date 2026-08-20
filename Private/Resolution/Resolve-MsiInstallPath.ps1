@@ -17,19 +17,28 @@
     ProgramFilesFolder is the *32-bit* location for every package, 32-bit or 64-bit --
     the 64-bit location is ProgramFiles64Folder. A tool that maps ProgramFilesFolder to
     C:\Program Files emits a detection rule that never matches for a 32-bit app, which is
-    precisely the silent 0x87D00324 the plan is about.
+    precisely the silent 0x87D00324 the plan is about. ProgramFilesFolder and
+    CommonFilesFolder below are therefore correctly hard-coded to the x86 location
+    regardless of package bitness -- deliberately NOT bitness-conditional, unlike
+    SystemFolder.
+
+    SystemFolder is the opposite case: unlike ProgramFilesFolder, it genuinely depends on
+    package bitness (SysWOW64 for a 32-bit package, System32 for a 64-bit one), so the
+    table entry below is only a default. Resolve-MsiInstallPath rewrites it at root-token
+    resolution time using the caller-supplied -Architecture, rather than this table
+    encoding a single answer that is wrong half the time.
 
     UserScope marks roots that live in a user profile. A component landing there is strong
     evidence -- not proof -- of a per-user install (plan §8.4).
 #>
 $script:MsiStandardDirectory = @{
     'TARGETDIR'             = @{ Environment = $null;                      UserScope = $false; Note = 'Installation root; the concrete location is decided at install time.' }
-    'ProgramFilesFolder'    = @{ Environment = '%ProgramFiles(x86)%';      UserScope = $false; Note = 'On 64-bit Windows this is the 32-bit Program Files, for both 32-bit and 64-bit packages.' }
+    'ProgramFilesFolder'    = @{ Environment = '%ProgramFiles(x86)%';      UserScope = $false; Note = 'On 64-bit Windows this is the 32-bit Program Files, for both 32-bit and 64-bit packages -- correctly NOT bitness-conditional.' }
     'ProgramFiles64Folder'  = @{ Environment = '%ProgramFiles%';           UserScope = $false; Note = $null }
-    'CommonFilesFolder'     = @{ Environment = '%CommonProgramFiles(x86)%'; UserScope = $false; Note = $null }
+    'CommonFilesFolder'     = @{ Environment = '%CommonProgramFiles(x86)%'; UserScope = $false; Note = 'Like ProgramFilesFolder, always the x86 location on 64-bit Windows regardless of package bitness -- correctly NOT bitness-conditional.' }
     'CommonFiles64Folder'   = @{ Environment = '%CommonProgramFiles%';     UserScope = $false; Note = $null }
     'WindowsFolder'         = @{ Environment = '%SystemRoot%';             UserScope = $false; Note = $null }
-    'SystemFolder'          = @{ Environment = '%SystemRoot%\SysWOW64';    UserScope = $false; Note = 'SysWOW64 for a 32-bit package; System32 for a 64-bit package.' }
+    'SystemFolder'          = @{ Environment = '%SystemRoot%\SysWOW64';    UserScope = $false; Note = 'Default only. SysWOW64 for a 32-bit package; System32 for a 64-bit package -- rewritten by Resolve-MsiInstallPath based on -Architecture, see above.' }
     'System64Folder'        = @{ Environment = '%SystemRoot%\System32';    UserScope = $false; Note = $null }
     'CommonAppDataFolder'   = @{ Environment = '%ProgramData%';            UserScope = $false; Note = $null }
     'AppDataFolder'         = @{ Environment = '%APPDATA%';                UserScope = $true;  Note = $null }
@@ -123,7 +132,13 @@ function Resolve-MsiInstallPath {
         [Parameter()]
         [AllowNull()]
         [AllowEmptyString()]
-        [string] $ComponentCondition
+        [string] $ComponentCondition,
+
+        # Needed only to disambiguate SystemFolder, whose concrete path depends on package
+        # bitness (plan §8.1). Unknown is the honest default when the caller could not
+        # determine it either -- see the Unknown/Neutral branch below.
+        [Parameter()]
+        [ArchitectureType] $Architecture = [ArchitectureType]::Unknown
     )
 
     $findings   = [System.Collections.Generic.List[Finding]]::new()
@@ -136,10 +151,18 @@ function Resolve-MsiInstallPath {
 
     $currentId  = $DirectoryId
     $rootToken  = $null
+    $lastId     = $null
+    $deadEnd    = $false
     $visited    = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 
     while ($true) {
-        if ([string]::IsNullOrWhiteSpace($currentId)) { break }
+        if ([string]::IsNullOrWhiteSpace($currentId)) {
+            # Parent ran out before the chain reached a recognised root. Distinct from the
+            # cycle break below, which already explains itself; this one otherwise leaves
+            # $rootToken silently $null with confidence untouched -- an unexplained absence.
+            $deadEnd = $true
+            break
+        }
 
         # A malformed Directory table can contain a parent cycle. Refusing to loop forever
         # is worth the four lines.
@@ -177,7 +200,14 @@ function Resolve-MsiInstallPath {
 
         if ($name) { $segments.Insert(0, $name) }
 
+        $lastId    = $currentId
         $currentId = $entry.Parent
+    }
+
+    if ($null -eq $rootToken -and $deadEnd) {
+        $findings.Add((New-ForgeFinding -Severity Warning -Code 'MSI_DIRECTORY_ROOT_UNKNOWN' -Field 'InstallLocation' -Message (
+            "The directory chain ended at '{0}' without reaching a recognised standard directory, so the install path could not be resolved." -f $(if ($lastId) { $lastId } else { $DirectoryId }))))
+        $confidence = [ConfidenceLevel]::Low
     }
 
     # A conditional component may not be installed at all.
@@ -194,6 +224,25 @@ function Resolve-MsiInstallPath {
         $standard        = $script:MsiStandardDirectory[$rootToken]
         $environmentRoot = $standard.Environment
         $isUserScope     = $standard.UserScope
+
+        if ($rootToken -eq 'SystemFolder') {
+            # The table entry is only a default (SysWOW64); Windows Installer actually
+            # resolves SystemFolder by package bitness, so this is decided per-call rather
+            # than by mutating the shared table.
+            switch ($Architecture) {
+                ([ArchitectureType]::x64)   { $environmentRoot = '%SystemRoot%\System32' }
+                ([ArchitectureType]::Arm64) { $environmentRoot = '%SystemRoot%\System32' }
+                ([ArchitectureType]::x86)   { $environmentRoot = '%SystemRoot%\SysWOW64' }
+                default {
+                    # Unknown or Neutral: keep the SysWOW64 default, but this is now a guess,
+                    # not a fact, so confidence and a finding must say so.
+                    $environmentRoot = '%SystemRoot%\SysWOW64'
+                    if ($confidence -eq [ConfidenceLevel]::High) { $confidence = [ConfidenceLevel]::Medium }
+                    $findings.Add((New-ForgeFinding -Severity Warning -Code 'MSI_SYSTEMFOLDER_ARCHITECTURE_UNKNOWN' -Field 'InstallLocation' -Message (
+                        'The directory chain resolves to SystemFolder, whose concrete path depends on package bitness (SysWOW64 for a 32-bit package, System32 for a 64-bit package). The package architecture could not be determined, so SysWOW64 is assumed; verify the real location on a reference machine.')))
+                }
+            }
+        }
 
         if ($null -eq $environmentRoot) {
             # TARGETDIR: a real root, but not one that maps to a concrete location offline.

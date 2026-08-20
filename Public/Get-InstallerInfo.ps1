@@ -80,6 +80,21 @@
         $evidence = [System.Collections.Generic.List[EvidenceRecord]]::new()
         $findings = [System.Collections.Generic.List[Finding]]::new()
 
+        <#
+            An absent signature is a recorded fact, not a finding -- NotSigned and
+            NotSupportedFileFormat just mean there was nothing to check, and UnknownError /
+            CheckFailed mean the check itself could not run. None of those say anything about
+            the file itself, so none of them raise a finding here (documented design
+            decision). HashMismatch and NotTrusted are different in kind: Authenticode
+            verification ran and actively failed, which is tamper evidence -- the file no
+            longer matches what was signed, or the chain of trust is broken -- and that is
+            worth a reviewer's attention before this installer gets packaged.
+        #>
+        if ($info.Signature.Status -in @('HashMismatch', 'NotTrusted')) {
+            $findings.Add((New-ForgeFinding -Severity Warning -Code 'SIGNATURE_INVALID' -Field 'Signature' -Message (
+                "The file's Authenticode signature failed validation ({0}), which is tamper evidence. Verify the installer's origin before packaging." -f $info.Signature.Status)))
+        }
+
         # ---- What kind of file is this? ------------------------------------------------
         $detection = Get-InstallerContainerType -Path $resolvedPath
 

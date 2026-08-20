@@ -376,6 +376,109 @@ InModuleScope PSPackageForge {
             $result.Confidence | Should -Be ([ConfidenceLevel]::Medium)
             ($result.Findings | Where-Object { $_.Code -eq 'MSI_DIRECTORY_UNRESOLVED' }) | Should -Not -BeNullOrEmpty
         }
+
+        It 'raises MSI_DIRECTORY_ROOT_UNKNOWN and drops to Low when the chain dead-ends without a standard root' {
+            <#
+                Fix L2: previously this case left $rootToken $null and confidence untouched,
+                a silent dead end -- EnvironmentPath came back $null with no explanation at
+                all attached to it.
+            #>
+            $database = Get-TestMsiDatabase -Directories @(
+                [PSCustomObject] @{ Directory = 'APPDIR'; Parent = ''; DefaultDir = 'App' }
+            )
+
+            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR'
+
+            $result.EnvironmentPath | Should -BeNullOrEmpty
+            $result.Confidence      | Should -Be ([ConfidenceLevel]::Low)
+
+            $finding = $result.Findings | Where-Object { $_.Code -eq 'MSI_DIRECTORY_ROOT_UNKNOWN' }
+            $finding             | Should -Not -BeNullOrEmpty
+            $finding.Message     | Should -BeLike "*'APPDIR'*"
+        }
+
+        It 'resolves SystemFolder to System32 for a 64-bit package, at unchanged confidence' {
+            <#
+                Fix M2: the static table default (SysWOW64) is correct only for a 32-bit
+                package. For x64/Arm64 the chain must resolve to System32 instead, without
+                touching confidence -- this is a fact, not a guess, once bitness is known.
+            #>
+            $database = Get-TestMsiDatabase -Directories @(
+                [PSCustomObject] @{ Directory = 'APPDIR'; Parent = 'SystemFolder'; DefaultDir = 'App' }
+            )
+
+            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR' -Architecture ([ArchitectureType]::x64)
+
+            $result.EnvironmentPath | Should -Be '%SystemRoot%\System32\App'
+            $result.Confidence      | Should -Be ([ConfidenceLevel]::High)
+            ($result.Findings | Where-Object { $_.Code -eq 'MSI_SYSTEMFOLDER_ARCHITECTURE_UNKNOWN' }) | Should -BeNullOrEmpty
+        }
+
+        It 'resolves SystemFolder to SysWOW64 for a 32-bit package, at unchanged confidence' {
+            $database = Get-TestMsiDatabase -Directories @(
+                [PSCustomObject] @{ Directory = 'APPDIR'; Parent = 'SystemFolder'; DefaultDir = 'App' }
+            )
+
+            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR' -Architecture ([ArchitectureType]::x86)
+
+            $result.EnvironmentPath | Should -Be '%SystemRoot%\SysWOW64\App'
+            $result.Confidence      | Should -Be ([ConfidenceLevel]::High)
+            ($result.Findings | Where-Object { $_.Code -eq 'MSI_SYSTEMFOLDER_ARCHITECTURE_UNKNOWN' }) | Should -BeNullOrEmpty
+        }
+
+        It 'falls back to SysWOW64 at Medium confidence, with a finding, when architecture is unknown' {
+            $database = Get-TestMsiDatabase -Directories @(
+                [PSCustomObject] @{ Directory = 'APPDIR'; Parent = 'SystemFolder'; DefaultDir = 'App' }
+            )
+
+            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR'
+
+            $result.EnvironmentPath | Should -Be '%SystemRoot%\SysWOW64\App'
+            $result.Confidence      | Should -Be ([ConfidenceLevel]::Medium)
+            ($result.Findings | Where-Object { $_.Code -eq 'MSI_SYSTEMFOLDER_ARCHITECTURE_UNKNOWN' }) | Should -Not -BeNullOrEmpty
+        }
+    }
+
+
+    Describe 'Resolve-MsiInstallPath SystemFolder bitness, wired through Get-MsiEvidence' {
+
+        # A single component under SystemFolder, reused across architectures.
+        $script:SystemFolderComponents = @([PSCustomObject] @{ Component = 'Main'; Directory = 'APPDIR'; Condition = ''; KeyPath = '_f1' })
+        $script:SystemFolderDirectories = @(
+            [PSCustomObject] @{ Directory = 'APPDIR'; Parent = 'SystemFolder'; DefaultDir = 'App' }
+        )
+        $script:SystemFolderFiles = @([PSCustomObject] @{ File = '_f1'; Component = 'Main'; FileName = 'app.dll'; FileSize = '100'; Version = '' })
+
+        It 'passes the architecture computed from the summary Template into path resolution (x64 -> System32)' {
+            $database = Get-TestMsiDatabase `
+                -Summary @{ Template = 'x64;1033' } `
+                -Properties @{ ProductName = 'X' } `
+                -Files $script:SystemFolderFiles `
+                -Components $script:SystemFolderComponents `
+                -Directories $script:SystemFolderDirectories
+
+            $result = Get-MsiEvidence -Database $database
+            $record = $result.Evidence | Where-Object { $_.Field -eq 'InstallLocation' }
+
+            $record.Value      | Should -Be '%SystemRoot%\System32\App'
+            $record.Confidence | Should -Be ([ConfidenceLevel]::High)
+        }
+
+        It 'falls back to SysWOW64 at Medium confidence when the Template does not reveal architecture' {
+            $database = Get-TestMsiDatabase `
+                -Summary @{} `
+                -Properties @{ ProductName = 'X' } `
+                -Files $script:SystemFolderFiles `
+                -Components $script:SystemFolderComponents `
+                -Directories $script:SystemFolderDirectories
+
+            $result = Get-MsiEvidence -Database $database
+            $record = $result.Evidence | Where-Object { $_.Field -eq 'InstallLocation' }
+
+            $record.Value      | Should -Be '%SystemRoot%\SysWOW64\App'
+            $record.Confidence | Should -Be ([ConfidenceLevel]::Medium)
+            ($result.Findings | Where-Object { $_.Code -eq 'MSI_SYSTEMFOLDER_ARCHITECTURE_UNKNOWN' }) | Should -Not -BeNullOrEmpty
+        }
     }
 
 

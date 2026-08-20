@@ -112,7 +112,12 @@ function Get-MsiEvidence {
 
     # ---- Architecture and language, from the summary Template --------------------------
     # Never inferred from the host PSPackageForge happens to be running on (plan §7.2).
-    $template = $database.SummaryInformation['Template']
+    #
+    # Hoisted above the if: Resolve-MsiInstallPath needs this value later (SystemFolder is
+    # bitness-dependent), so it must exist -- as the honest Unknown -- even when the
+    # Template is missing or unrecognised, not only inside the branch that computes it.
+    $architecture = [ArchitectureType]::Unknown
+    $template     = $database.SummaryInformation['Template']
 
     if (-not [string]::IsNullOrWhiteSpace($template)) {
         $platform = ($template -split ';', 2)[0].Trim()
@@ -262,7 +267,7 @@ function Get-MsiEvidence {
             $component = $componentsById[$primary.Component]
 
             if ($component) {
-                $resolution = Resolve-MsiInstallPath -Database $database -DirectoryId $component.Directory -ComponentCondition $component.Condition
+                $resolution = Resolve-MsiInstallPath -Database $database -DirectoryId $component.Directory -ComponentCondition $component.Condition -Architecture $architecture
 
                 foreach ($finding in $resolution.Findings) { $findings.Add($finding) }
 
@@ -316,9 +321,12 @@ function Get-MsiEvidence {
         }
 
         if ($primary -and -not [string]::IsNullOrWhiteSpace($primary.Version)) {
-            # The File table version is what Get-Item .VersionInfo will report on disk, and
-            # it is regularly NOT the same as the MSI ProductVersion. Detection must compare
-            # against the file, so the file's version is what gets recorded.
+            # The File table Version column is the file's BINARY version (dotted-quad) --
+            # the same FileMajor/Minor/Build/PrivatePart values Get-Item .VersionInfo reports
+            # on disk. It is NOT the FileVersion string resource, which vendors set to
+            # whatever text they like and which regularly disagrees with the binary parts.
+            # It is also regularly NOT the same as the MSI ProductVersion. Detection compares
+            # against the binary parts for exactly this reason, so that is what gets recorded.
             $versionConfidence = if ($null -ne $targetConfidence) { $targetConfidence } else { [ConfidenceLevel]::Medium }
             & $addEvidence 'DetectionTargetVersion' $primary.Version $versionConfidence (
                 "File version of the heuristically selected detection target '$($primary.FileName)' from the MSI File table.")
