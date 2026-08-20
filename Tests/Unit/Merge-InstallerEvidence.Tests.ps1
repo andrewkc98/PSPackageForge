@@ -243,7 +243,11 @@ InModuleScope PSPackageForge {
                 $result.Conflicts | Should -Contain 'DetectionTarget'
             }
 
-            It 'does not raise a conflict when the disagreeing sources are not both High' {
+        }
+
+        Context 'Tiered conflict below High confidence on a critical field' {
+
+            It 'raises a conflict when a lower-tier winner is contradicted by a higher-confidence source' {
                 $evidence = @(
                     [EvidenceRecord]::new('InstallLocation', 'C:\Left', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High)
                     [EvidenceRecord]::new('InstallLocation', 'C:\Right', [EvidenceSource]::DiscoveryJson, [ConfidenceLevel]::Medium)
@@ -251,10 +255,77 @@ InModuleScope PSPackageForge {
 
                 $result = Merge-InstallerEvidence -Evidence $evidence
 
-                # Medium losing to High is ordinary resolution, not a conflict -- but
-                # precedence still wins, so DiscoveryJson takes it.
+                # Precedence still wins the VALUE (DiscoveryJson outranks MsiDatabase),
+                # but this is exactly the invisible-conflict gap EVIDENCE_CONFLICT closes:
+                # a High-confidence source disagreeing with a winner that never reached
+                # High must not go unreported just because the winner's own tier is
+                # Medium. The tiered check looks at the winner's tier AND above.
+                $result.Conflicts                              | Should -Contain 'InstallLocation'
+                $result.Resolved['InstallLocation'].Value      | Should -Be 'C:\Right'
+                $result.Resolved['InstallLocation'].Confidence | Should -Be ([ConfidenceLevel]::Low)
+            }
+
+            It 'raises EVIDENCE_CONFLICT on a Medium/Medium disagreement and downgrades the winner to Low' {
+                $evidence = @(
+                    [EvidenceRecord]::new('SelectedContext', 'System', [EvidenceSource]::KnownQuirk, [ConfidenceLevel]::Medium)
+                    [EvidenceRecord]::new('SelectedContext', 'User', [EvidenceSource]::KnownQuirk, [ConfidenceLevel]::Medium)
+                )
+
+                $result  = Merge-InstallerEvidence -Evidence $evidence
+                $finding = $result.Findings | Where-Object { $_.Code -eq 'EVIDENCE_CONFLICT' }
+
+                $finding                                        | Should -Not -BeNullOrEmpty
+                $finding.Severity                               | Should -Be ([FindingSeverity]::Warning)
+                $finding.Field                                  | Should -Be 'SelectedContext'
+                $result.Resolved['SelectedContext'].Confidence  | Should -Be ([ConfidenceLevel]::Low)
+                $result.Conflicts                               | Should -Contain 'SelectedContext'
+
+                # The audit trail is untouched -- only the merger's clone is downgraded.
+                $evidence[0].Confidence | Should -Be ([ConfidenceLevel]::Medium)
+                $evidence[1].Confidence | Should -Be ([ConfidenceLevel]::Medium)
+            }
+
+            It 'does not raise a conflict when Medium sources agree' {
+                $evidence = @(
+                    [EvidenceRecord]::new('SelectedContext', 'System', [EvidenceSource]::KnownQuirk, [ConfidenceLevel]::Medium)
+                    [EvidenceRecord]::new('SelectedContext', 'System', [EvidenceSource]::PeMetadata, [ConfidenceLevel]::Medium)
+                )
+
+                $result = Merge-InstallerEvidence -Evidence $evidence
+
+                $result.Findings                               | Should -BeNullOrEmpty
+                $result.Conflicts                              | Should -BeNullOrEmpty
+                $result.Resolved['SelectedContext'].Confidence | Should -Be ([ConfidenceLevel]::Medium)
+            }
+
+            It 'does not raise a finding for a Medium/Medium disagreement on a non-critical field' {
+                $evidence = @(
+                    [EvidenceRecord]::new('Manufacturer', 'Igor Pavlov', [EvidenceSource]::KnownQuirk, [ConfidenceLevel]::Medium)
+                    [EvidenceRecord]::new('Manufacturer', '7-Zip', [EvidenceSource]::PeMetadata, [ConfidenceLevel]::Medium)
+                )
+
+                $result = Merge-InstallerEvidence -Evidence $evidence
+
+                $result.Findings                            | Should -BeNullOrEmpty
                 $result.Conflicts                           | Should -BeNullOrEmpty
-                $result.Resolved['InstallLocation'].Value   | Should -Be 'C:\Right'
+                $result.Resolved['Manufacturer'].Confidence | Should -Be ([ConfidenceLevel]::Medium)
+            }
+
+            It 'stays at Low and still warns when a Low winner disagrees' {
+                $evidence = @(
+                    [EvidenceRecord]::new('DetectionTarget', '1.0', [EvidenceSource]::Inferred, [ConfidenceLevel]::Low)
+                    [EvidenceRecord]::new('DetectionTarget', '2.0', [EvidenceSource]::PeMetadata, [ConfidenceLevel]::Low)
+                )
+
+                $result  = Merge-InstallerEvidence -Evidence $evidence
+                $finding = $result.Findings | Where-Object { $_.Code -eq 'EVIDENCE_CONFLICT' }
+
+                # A Low winner has nowhere lower to fall, but silence is still not an
+                # option -- the Warning fires regardless.
+                $finding                                        | Should -Not -BeNullOrEmpty
+                $finding.Severity                               | Should -Be ([FindingSeverity]::Warning)
+                $result.Resolved['DetectionTarget'].Confidence  | Should -Be ([ConfidenceLevel]::Low)
+                $result.Conflicts                               | Should -Contain 'DetectionTarget'
             }
         }
 

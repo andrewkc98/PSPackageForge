@@ -14,9 +14,21 @@
                                  > KnownQuirk > PeMetadata > Inferred
                 Ties on precedence are broken by confidence, then by input order (stable).
 
-              * When two sources of High confidence disagree on a CRITICAL field, apply
-                precedence but emit an EVIDENCE_CONFLICT Warning and downgrade the winning
-                field to Medium. The conflict is never resolved silently.
+              * For a CRITICAL field, the winner is still chosen by precedence, but the
+                conflict check is not limited to High confidence. It looks at every
+                candidate at the winner's OWN confidence tier and above. A High winner is
+                checked against its High peers, same as before; a Medium winner -- one
+                that only outranks a disagreeing High source on precedence, or that only
+                has Medium peers -- is checked too, because a disagreement invisible below
+                High is still a disagreement. On a hit: emit an EVIDENCE_CONFLICT Warning
+                naming the field, the disagreeing source=value pairs, and the winner, then
+                downgrade the winner's confidence exactly one level (High -> Medium,
+                Medium -> Low; Low has nowhere to go and stays Low, but still warns). The
+                conflict is never resolved silently, and it never costs zero levels of
+                trust -- Medium -> Low is deliberate, not incidental: it is what trips the
+                downstream *_LOW_CONFIDENCE Blocking gates in Resolve-PackageSpec, so a
+                contradicted Medium-confidence decision cannot go on to produce runnable
+                output.
 
               * A high-confidence disagreement on a non-critical field is still surfaced,
                 as Info, but does not downgrade confidence. The plan reserves the
@@ -106,30 +118,56 @@
                                       @{ Expression = 'Confidence'; Descending = $true },
                                       @{ Expression = 'Order'; Descending = $false }
 
-            $winner = $ranked[0].Record.Clone()
+            $winner     = $ranked[0].Record.Clone()
+            $isCritical = $CriticalField -contains $field
 
-            # A conflict is a DISAGREEMENT between High-confidence sources -- two sources
-            # that agree are corroboration, which is the opposite of a problem.
-            $highConfidence = @($candidates | Where-Object { $_.Confidence -eq [ConfidenceLevel]::High })
-            $distinctValues = @(
-                $highConfidence |
-                    ForEach-Object { ConvertTo-ForgeComparableValue -Value $_.Value } |
-                    Select-Object -Unique
-            )
+            if ($isCritical) {
+                <#
+                    Critical fields are checked at the winner's OWN confidence tier and
+                    above, not just High. A High winner is checked against High peers only
+                    -- that reproduces the old behaviour. But a winner that only reached
+                    Medium (because it out-ranked a disagreeing High source, or because
+                    every candidate happened to be Medium) has to be checked too: a
+                    disagreement that never touches High confidence is still a
+                    disagreement on a field that can break a deployment, and it was
+                    completely invisible before this changed. Checking only High/High
+                    here would let precedence quietly paper over exactly the kind of
+                    contradiction plan §2 says must never be silent.
+                #>
+                $tier           = $winner.Confidence
+                $tierCandidates = @($candidates | Where-Object { [int] $_.Confidence -ge [int] $tier })
+                $distinctValues = @(
+                    $tierCandidates |
+                        ForEach-Object { ConvertTo-ForgeComparableValue -Value $_.Value } |
+                        Select-Object -Unique
+                )
 
-            if ($distinctValues.Count -gt 1) {
-                $conflicts.Add($field)
+                if ($distinctValues.Count -gt 1) {
+                    $conflicts.Add($field)
 
-                $detail = ($highConfidence |
-                    ForEach-Object { '{0}={1}' -f $_.Source, (ConvertTo-ForgeDisplayValue -Value $_.Value) }) -join '; '
+                    $detail = ($tierCandidates |
+                        ForEach-Object { '{0}={1}' -f $_.Source, (ConvertTo-ForgeDisplayValue -Value $_.Value) }) -join '; '
 
-                $isCritical = $CriticalField -contains $field
+                    <#
+                        A conflict always costs the winner exactly one level of trust,
+                        never zero. High -> Medium leaves a usable-but-flagged value.
+                        Medium -> Low is the deliberate part: it is chosen specifically
+                        because Resolve-PackageSpec's *_LOW_CONFIDENCE Blocking gates key
+                        off Low, so a contradicted Medium-confidence decision stops being
+                        able to produce runnable output rather than sailing through as an
+                        unresolved Warning. A winner already at Low has nowhere lower to
+                        go, but still gets the Warning -- the floor is not an excuse for
+                        silence.
+                    #>
+                    $downgraded = switch ($tier) {
+                        ([ConfidenceLevel]::High)   { [ConfidenceLevel]::Medium }
+                        ([ConfidenceLevel]::Medium) { [ConfidenceLevel]::Low }
+                        default                     { [ConfidenceLevel]::Low }
+                    }
 
-                if ($isCritical) {
-                    # Apply precedence, but say so loudly and stop claiming High.
-                    $winner.Confidence = [ConfidenceLevel]::Medium
+                    $winner.Confidence = $downgraded
 
-                    $note = 'Confidence downgraded to Medium by EVIDENCE_CONFLICT.'
+                    $note = "Confidence downgraded to $downgraded by EVIDENCE_CONFLICT."
                     $winner.Notes = if ([string]::IsNullOrWhiteSpace($winner.Notes)) {
                         $note
                     }
@@ -138,14 +176,34 @@
                     }
 
                     $findings.Add((New-ForgeFinding -Severity Warning -Code 'EVIDENCE_CONFLICT' -Field $field -Message (
-                        "High-confidence sources disagree on critical field '{0}' ({1}). Resolved to '{2}' by precedence ({3}); confidence downgraded to Medium. Verify this value before deploying." -f
+                        "{5}-confidence sources disagree on critical field '{0}' ({1}). Resolved to '{2}' by precedence ({3}); confidence downgraded to {4}. Verify this value before deploying." -f
                             $field,
                             $detail,
                             (ConvertTo-ForgeDisplayValue -Value $winner.Value),
-                            $winner.Source
+                            $winner.Source,
+                            $downgraded,
+                            $tier
                     )))
                 }
-                else {
+            }
+            else {
+                # Non-critical fields keep the original, narrower policy: only a
+                # High/High disagreement is worth an operator's attention, and even then
+                # it is Info, not a reason to touch confidence -- the plan reserves the
+                # downgrade for decisions that can break a deployment.
+                $highConfidence = @($candidates | Where-Object { $_.Confidence -eq [ConfidenceLevel]::High })
+                $distinctValues = @(
+                    $highConfidence |
+                        ForEach-Object { ConvertTo-ForgeComparableValue -Value $_.Value } |
+                        Select-Object -Unique
+                )
+
+                if ($distinctValues.Count -gt 1) {
+                    $conflicts.Add($field)
+
+                    $detail = ($highConfidence |
+                        ForEach-Object { '{0}={1}' -f $_.Source, (ConvertTo-ForgeDisplayValue -Value $_.Value) }) -join '; '
+
                     $findings.Add((New-ForgeFinding -Severity Info -Code 'EVIDENCE_CONFLICT' -Field $field -Message (
                         "High-confidence sources disagree on '{0}' ({1}). Resolved to '{2}' by precedence ({3})." -f
                             $field,

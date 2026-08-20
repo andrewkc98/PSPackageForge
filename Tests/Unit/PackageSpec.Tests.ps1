@@ -111,6 +111,98 @@ InModuleScope PSPackageForge {
         }
     }
 
+    Describe 'Resolve-PackageSpec command evidence' {
+
+        BeforeAll {
+            # A minimal non-MSI InstallerInfo with just enough evidence for
+            # SelectedContext to resolve, so each test's assertions are about command
+            # handling specifically, not collateral blocking from an unrelated decision.
+            function script:New-BareInstallerInfo {
+                $info = [InstallerInfo]::new()
+                $info.Path          = 'C:\Source\app.exe'
+                $info.FileName      = 'app.exe'
+                $info.ContainerType = [ContainerType]::Exe
+                $info.Evidence      = @(
+                    [EvidenceRecord]::new('SelectedContext', 'System', [EvidenceSource]::UserOverride, [ConfidenceLevel]::High)
+                )
+                $info.ResolvedEvidence = @($info.Evidence)
+                return $info
+            }
+        }
+
+        It 'blocks a Low-confidence CommandSpec InstallCommand and forces NeedsInput' {
+            $command = [CommandSpec]::new('setup.exe', @('/S'))
+            $info    = New-BareInstallerInfo
+            $info.Evidence += [EvidenceRecord]::new('InstallCommand', $command, [EvidenceSource]::UserOverride, [ConfidenceLevel]::Low)
+            $info.ResolvedEvidence = @($info.Evidence)
+
+            $spec = Resolve-PackageSpec -InstallerInfo $info
+
+            # The command is still recorded on the spec -- the Blocking finding, not a
+            # missing value, is what suppresses runnable readiness.
+            $spec.InstallCommand.Executable | Should -Be 'setup.exe'
+            ($spec.BlockingFindings | Where-Object Code -eq 'INSTALL_COMMAND_LOW_CONFIDENCE') |
+                Should -Not -BeNullOrEmpty
+            $spec.Readiness | Should -Be ([ReadinessLevel]::NeedsInput)
+        }
+
+        It 'blocks a Low-confidence CommandSpec UninstallCommand and forces NeedsInput' {
+            $command = [CommandSpec]::new('uninstall.exe', @('/S'))
+            $info    = New-BareInstallerInfo
+            $info.Evidence += [EvidenceRecord]::new('UninstallCommand', $command, [EvidenceSource]::UserOverride, [ConfidenceLevel]::Low)
+            $info.ResolvedEvidence = @($info.Evidence)
+
+            $spec = Resolve-PackageSpec -InstallerInfo $info
+
+            $spec.UninstallCommand.Executable | Should -Be 'uninstall.exe'
+            ($spec.BlockingFindings | Where-Object Code -eq 'UNINSTALL_COMMAND_LOW_CONFIDENCE') |
+                Should -Not -BeNullOrEmpty
+            $spec.Readiness | Should -Be ([ReadinessLevel]::NeedsInput)
+        }
+
+        It 'converts a hashtable-shaped InstallCommand evidence value into a CommandSpec' {
+            $commandDictionary = @{ Executable = 'setup.exe'; ArgumentList = @('/S'); ExpectedExitCodes = @(0, 3010) }
+            $info = New-BareInstallerInfo
+            $info.Evidence += [EvidenceRecord]::new('InstallCommand', $commandDictionary, [EvidenceSource]::DiscoveryJson, [ConfidenceLevel]::High)
+            $info.ResolvedEvidence = @($info.Evidence)
+
+            $spec = Resolve-PackageSpec -InstallerInfo $info
+
+            $spec.InstallCommand.Executable        | Should -Be 'setup.exe'
+            $spec.InstallCommand.ArgumentList      | Should -Be @('/S')
+            $spec.InstallCommand.ExpectedExitCodes | Should -Be @(0, 3010)
+
+            # A plain Import-Module caller cannot construct [CommandSpec] directly (L4);
+            # the dictionary shape has to be a fully accepted alternative, clone included.
+            ($spec.DecisionEvidence | Where-Object Field -eq 'InstallCommand') | Should -Not -BeNullOrEmpty
+            ($spec.BlockingFindings | Where-Object Code -eq 'COMMAND_EVIDENCE_UNUSABLE') | Should -BeNullOrEmpty
+        }
+
+        It 'reports COMMAND_EVIDENCE_UNUSABLE for a string-valued InstallCommand and still falls through to INSTALL_COMMAND_UNRESOLVED' {
+            $info = New-BareInstallerInfo
+            $info.Evidence += [EvidenceRecord]::new('InstallCommand', 'setup.exe /S', [EvidenceSource]::DiscoveryJson, [ConfidenceLevel]::High)
+            $info.ResolvedEvidence = @($info.Evidence)
+
+            $spec = Resolve-PackageSpec -InstallerInfo $info
+
+            # Strings are never parsed into commands -- not even when they look like one.
+            ($spec.BlockingFindings | Where-Object Code -eq 'COMMAND_EVIDENCE_UNUSABLE') | Should -Not -BeNullOrEmpty
+            ($spec.BlockingFindings | Where-Object Code -eq 'INSTALL_COMMAND_UNRESOLVED') | Should -Not -BeNullOrEmpty
+            $spec.InstallCommand.IsResolved() | Should -BeFalse
+        }
+
+        It 'reports COMMAND_EVIDENCE_UNUSABLE for a hashtable missing the required Executable key' {
+            $info = New-BareInstallerInfo
+            $info.Evidence += [EvidenceRecord]::new('InstallCommand', @{ ArgumentList = @('/S') }, [EvidenceSource]::DiscoveryJson, [ConfidenceLevel]::High)
+            $info.ResolvedEvidence = @($info.Evidence)
+
+            $spec = Resolve-PackageSpec -InstallerInfo $info
+
+            ($spec.BlockingFindings | Where-Object Code -eq 'COMMAND_EVIDENCE_UNUSABLE') | Should -Not -BeNullOrEmpty
+            $spec.InstallCommand.IsResolved() | Should -BeFalse
+        }
+    }
+
     Describe 'ConvertTo-CommandString' {
 
         It 'quotes only the argument that needs quoting' {
