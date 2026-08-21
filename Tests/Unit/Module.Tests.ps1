@@ -40,12 +40,13 @@ Describe 'Module manifest' {
         $forge.RequiredPSADTVersion   | Should -Not -BeNullOrEmpty
     }
 
-    It 'exports exactly the seven public cmdlets of the locked v1 scope' {
+    It 'exports exactly the seven public cmdlets of the locked v1 scope plus the MECM deployment-spec renderer' {
         $expected = @(
             'Get-InstalledAppInfo'
             'Get-InstallerInfo'
             'New-DetectionMethod'
             'New-IntuneWinPackage'
+            'New-MecmDeploymentSpec'
             'New-PSADTPackage'
             'New-PackageDocument'
             'New-PackageScaffold'

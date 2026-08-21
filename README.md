@@ -345,6 +345,7 @@ Current v1 progress:
 - [ ] `Get-InstalledAppInfo` and discovery-data contract
 - [ ] EXE framework evidence and argument profiles
 - [ ] KiCad and Obsidian regression cases
+- [x] `New-MecmDeploymentSpec` and `MecmDeploymentSpec.json`
 - [ ] `New-PSADTPackage`
 - [ ] `New-IntuneWinPackage`
 
@@ -381,14 +382,19 @@ v1 performs a smaller set of validation checks during package generation. A dedi
 
 ### MECM and Intune deployment specifications
 
-Planned machine-readable output:
+Machine-readable deployment specifications generated from the package manifest:
 
 ```text
-MecmDeploymentSpec.json
-IntuneWin32Spec.json
+MecmDeploymentSpec.json    (implemented: New-MecmDeploymentSpec)
+IntuneWin32Spec.json       (planned)
 ```
 
-These will be generated from the package manifest.
+`New-MecmDeploymentSpec` renders a ConfigMgr Application/DeploymentType-shaped
+specification from an existing `PackageManifest.json`. Organization facts that no
+installer evidence can determine -- the content-source UNC path and real install
+runtimes -- are operator parameters; when omitted they are emitted as `null` (or the
+ConfigMgr platform default of 120 minutes for the maximum runtime) together with a
+`Finding` in the specification itself, never silently guessed.
 
 ### winget-pkgs evidence provider
 

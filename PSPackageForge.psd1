@@ -19,6 +19,7 @@
         'New-DetectionMethod'
         'New-PSADTPackage'
         'New-IntuneWinPackage'
+        'New-MecmDeploymentSpec'
         'New-PackageDocument'
         'New-PackageScaffold'
     )
