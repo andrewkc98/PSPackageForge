@@ -35,45 +35,29 @@ function ConvertTo-MecmIsoTimestamp {
 }
 
 
-function ConvertTo-MecmCommandLine {
+function ConvertTo-MecmWrapperCommandLine {
     <#
         .SYNOPSIS
-            Reconstructs a manifest CommandSpec JSON node into a Windows command-line string.
+            Renders the canonical PSADT deployment entry point for MECM.
 
         .DESCRIPTION
-            The same reconstruction ConvertTo-PackageDocumentContent's Format-DocumentCommand
-            uses: rebuild a [CommandSpec] from the manifest's structured command JSON and hand
-            it to ConvertTo-CommandString, the module's single quoting boundary (plan §5.2).
-            Quoting is not reimplemented here.
-
-            Returns $null, not a placeholder string, when the command did not resolve. Unlike
-            Format-DocumentCommand's '(not resolved -- see findings below)', this value lands
-            in a JSON field a deployment tool will consume, not a Markdown cell meant for a
-            human reviewer -- a sentinel string in a machine-readable ConfigMgr script command
-            field would be actively harmful.
+            PackageManifest command fields are the vendor payload commands executed inside the
+            generated PSADT package. MECM invokes the package's stable external entry point
+            instead. The wrapper command is still constructed as a CommandSpec and handed to
+            ConvertTo-CommandString so the module retains one command-line quoting boundary.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter()]
-        [AllowNull()]
-        [object] $Command
+        [Parameter(Mandatory)]
+        [ValidateSet('Install', 'Uninstall')]
+        [string] $DeploymentType
     )
 
-    $executable = Get-DocumentOptionalProperty -InputObject $Command -Name 'Executable'
-    if ($null -eq $Command -or [string]::IsNullOrWhiteSpace("$executable")) {
-        return $null
-    }
-
-    $argumentList = @()
-    $rawArguments = Get-DocumentOptionalProperty -InputObject $Command -Name 'ArgumentList'
-    if ($rawArguments) { $argumentList = @($rawArguments | ForEach-Object { "$_" }) }
-
-    $expectedExitCodes = @()
-    $rawExitCodes = Get-DocumentOptionalProperty -InputObject $Command -Name 'ExpectedExitCodes'
-    if ($rawExitCodes) { $expectedExitCodes = @($rawExitCodes | ForEach-Object { [int] $_ }) }
-
-    $spec = [CommandSpec]::new([string] $executable, [string[]] $argumentList, [int[]] $expectedExitCodes)
+    $spec = [CommandSpec]::new(
+        'Invoke-AppDeployToolkit.exe',
+        [string[]] @('-DeploymentType', $DeploymentType, '-DeployMode', 'Silent', '-AllowRebootPassThru'),
+        [int[]] @(0, 1641, 3010))
     return ConvertTo-CommandString -CommandSpec $spec
 }
 
@@ -296,8 +280,8 @@ function ConvertTo-MecmDeploymentSpec {
     $deploymentType = [ordered] @{
         Name                    = "$productName - Script Installer"
         Technology              = 'Script'
-        InstallCommand          = ConvertTo-MecmCommandLine -Command (Get-DocumentOptionalProperty -InputObject $packageSpec -Name 'InstallCommand')
-        UninstallCommand        = ConvertTo-MecmCommandLine -Command (Get-DocumentOptionalProperty -InputObject $packageSpec -Name 'UninstallCommand')
+        InstallCommand          = ConvertTo-MecmWrapperCommandLine -DeploymentType Install
+        UninstallCommand        = ConvertTo-MecmWrapperCommandLine -DeploymentType Uninstall
         ContentSourcePath       = $resolvedContentSourcePath
         Detection               = $detection
         UserExperience          = $userExperience

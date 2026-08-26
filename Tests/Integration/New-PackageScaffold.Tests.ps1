@@ -1,6 +1,7 @@
 ﻿<# Public orchestration boundary for the core manifest/detection milestone. #>
 
-Describe 'New-PackageScaffold core output' {
+Describe 'New-PackageScaffold core output' `
+    -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
     BeforeAll {
         $script:ModuleRoot   = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)

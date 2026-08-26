@@ -294,11 +294,10 @@ KiCad and Obsidian cover two common EXE packaging cases where installation locat
 
 PSPackageForge currently targets Windows.
 
-Currently verified PowerShell runtime:
+Verified PowerShell runtimes:
 
 - Windows PowerShell 5.1
-
-PowerShell 7 compatibility remains declared in the module contract, but its CI job is intentionally deferred until that runtime is implemented and verified.
+- PowerShell 7 on Ubuntu
 
 Windows PowerShell 5.1 remains supported because it is still widely used in MECM environments.
 
@@ -326,6 +325,25 @@ Import-Module ./PSPackageForge/PSPackageForge.psd1
 
 This runs the same core checks used by CI.
 
+### Generate the PSADT package
+
+After `New-PackageScaffold` has produced a reviewed manifest, generate the deployable
+content root with:
+
+```powershell
+New-PSADTPackage -ManifestPath ./Output/PackageManifest.json
+```
+
+The default output is `Package/` beside the manifest. PSPackageForge requires the exact
+PSAppDeployToolkit version recorded in the manifest (`4.0.6` for schema v1), calls its native
+`New-ADTTemplate`, copies the hash-verified installer into `Package/Files`, and renders the
+manifest's structured payload commands into the PSADT install and uninstall phases. It never
+downloads or silently upgrades PSADT.
+
+MECM deployment specifications invoke this package through the stable
+`Invoke-AppDeployToolkit.exe` entry point; the vendor payload commands remain authoritative
+inside `PackageManifest.json`.
+
 ---
 
 ## Build progress
@@ -333,7 +351,7 @@ This runs the same core checks used by CI.
 Current v1 progress:
 
 - [x] Module skeleton, PSScriptAnalyzer settings, CI on Windows PowerShell 5.1
-- [ ] PowerShell 7 implementation and CI verification
+- [x] PowerShell 7 implementation and CI verification
 - [x] Type contract: `EvidenceRecord`, `InstallerInfo`, `PackageSpec`, `Finding`, `CommandSpec`
 - [x] Evidence merger, precedence, and `EVIDENCE_CONFLICT` handling
 - [x] Native MSI provider and `File → Component → Directory` path resolution
@@ -346,7 +364,7 @@ Current v1 progress:
 - [ ] EXE framework evidence and argument profiles
 - [ ] KiCad and Obsidian regression cases
 - [x] `New-MecmDeploymentSpec` and `MecmDeploymentSpec.json`
-- [ ] `New-PSADTPackage`
+- [x] `New-PSADTPackage`
 - [ ] `New-IntuneWinPackage`
 
 ---

@@ -130,10 +130,14 @@ InModuleScope PSPackageForge {
                 $script:Spec.DeploymentType[0].Name           | Should -Be '7-Zip 26.02 (x64 edition) - Script Installer'
             }
 
-            It 'reconstructs install/uninstall command lines matching PackageDocument.md' {
-                $script:Spec.DeploymentType[0].InstallCommand   | Should -Be 'msiexec.exe /i 7z2602-x64.msi /qn'
+            It 'invokes the canonical PSADT wrapper while payload commands remain in the manifest' {
+                $script:Spec.DeploymentType[0].InstallCommand |
+                    Should -Be 'Invoke-AppDeployToolkit.exe -DeploymentType Install -DeployMode Silent -AllowRebootPassThru'
                 $script:Spec.DeploymentType[0].UninstallCommand |
-                    Should -Be 'msiexec.exe /x {23170F69-40C1-2702-2602-000001000000} /qn'
+                    Should -Be 'Invoke-AppDeployToolkit.exe -DeploymentType Uninstall -DeployMode Silent -AllowRebootPassThru'
+
+                $script:SevenZipManifest.PackageSpec.InstallCommand.Executable | Should -Be 'msiexec.exe'
+                $script:SevenZipManifest.PackageSpec.UninstallCommand.Executable | Should -Be 'msiexec.exe'
             }
 
             It 'renders the shared detection script as the Script detection method' {
@@ -229,10 +233,11 @@ InModuleScope PSPackageForge {
                 $detection.ScriptFile | Should -Be 'Detect-Application.ps1'
             }
 
-            It 'reconstructs the EXE install/uninstall command lines with no MSI assumptions' {
-                $script:KiCadSpec.DeploymentType[0].InstallCommand   | Should -Be 'kicad-8.0.0-x86_64.exe /S'
+            It 'uses the same PSADT wrapper entry point with no MSI assumptions' {
+                $script:KiCadSpec.DeploymentType[0].InstallCommand |
+                    Should -Be 'Invoke-AppDeployToolkit.exe -DeploymentType Install -DeployMode Silent -AllowRebootPassThru'
                 $script:KiCadSpec.DeploymentType[0].UninstallCommand |
-                    Should -Be '"C:\Program Files\KiCad\8.0\uninstall.exe" /S'
+                    Should -Be 'Invoke-AppDeployToolkit.exe -DeploymentType Uninstall -DeployMode Silent -AllowRebootPassThru'
             }
 
             It 'maps System context to InstallForSystem' {
