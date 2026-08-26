@@ -72,7 +72,8 @@ AfterAll {
 InModuleScope PSPackageForge {
 
 
-    Describe 'Get-MsiEvidence against the committed native fixture' {
+    Describe 'Get-MsiEvidence against the committed native fixture' `
+        -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
         BeforeAll {
             $script:FixturePath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'Fixtures\native-clean.msi'

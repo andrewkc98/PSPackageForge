@@ -24,7 +24,8 @@ $ModuleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $ModuleRoot 'PSPackageForge.psd1') -Force
 
 
-Describe 'Get-InstallerInfo public boundary against wrapper-style.msi' {
+Describe 'Get-InstallerInfo public boundary against wrapper-style.msi' `
+    -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
     BeforeAll {
         # Recomputed here rather than relying on a bare top-of-file variable: Pester runs
@@ -113,7 +114,8 @@ Describe 'Container detection against wrapper-style.msi' {
 
 InModuleScope PSPackageForge {
 
-    Describe 'Resolve-PackageSpec against wrapper-style.msi: the honest refusal end to end' {
+    Describe 'Resolve-PackageSpec against wrapper-style.msi: the honest refusal end to end' `
+        -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
         BeforeAll {
             $script:FixturePath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'Fixtures\wrapper-style.msi'
@@ -160,7 +162,8 @@ InModuleScope PSPackageForge {
     }
 
 
-    Describe 'wrapper-style.msi classifies as Wrapper on its own shape, matching no known quirk' {
+    Describe 'wrapper-style.msi classifies as Wrapper on its own shape, matching no known quirk' `
+        -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
         <#
             Config\known-quirks.psd1 (build order step 9, a concurrently developed file)

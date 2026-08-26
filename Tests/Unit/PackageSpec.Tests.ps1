@@ -13,7 +13,8 @@ InModuleScope PSPackageForge {
 
     Describe 'Resolve-PackageSpec' {
 
-        It 'builds standard native-MSI commands without using the MSI filename for uninstall' {
+        It 'builds standard native-MSI commands without using the MSI filename for uninstall' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $context = [EvidenceRecord]::new(
                 'SelectedContext', 'System', [EvidenceSource]::UserOverride, [ConfidenceLevel]::High)
             $info = Get-InstallerInfo -Path $script:FixturePath -AdditionalEvidence $context
@@ -26,7 +27,8 @@ InModuleScope PSPackageForge {
             $spec.UninstallCommand.ArgumentList | Should -Not -Contain 'native-clean.msi'
         }
 
-        It 'produces ReviewRequired only when all four critical decisions resolve' {
+        It 'produces ReviewRequired only when all four critical decisions resolve' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $context = [EvidenceRecord]::new(
                 'SelectedContext', 'System', [EvidenceSource]::UserOverride, [ConfidenceLevel]::High)
             $info = Get-InstallerInfo -Path $script:FixturePath -AdditionalEvidence $context
@@ -40,7 +42,8 @@ InModuleScope PSPackageForge {
             $spec.DetectionSpec[0].Operator | Should -Be ([DetectionOperator]::Exists)
         }
 
-        It 'blocks when install context is unresolved' {
+        It 'blocks when install context is unresolved' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $info = Get-InstallerInfo -Path $script:FixturePath
             $info.Evidence         = @($info.Evidence | Where-Object Field -ne 'SelectedContext')
             $info.ResolvedEvidence = @($info.ResolvedEvidence | Where-Object Field -ne 'SelectedContext')
@@ -51,7 +54,8 @@ InModuleScope PSPackageForge {
                 Should -Not -BeNullOrEmpty
         }
 
-        It 'records provenance for every resolved deployment decision' {
+        It 'records provenance for every resolved deployment decision' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $context = [EvidenceRecord]::new(
                 'SelectedContext', 'System', [EvidenceSource]::UserOverride, [ConfidenceLevel]::High)
             $info = Get-InstallerInfo -Path $script:FixturePath -AdditionalEvidence $context
@@ -63,7 +67,8 @@ InModuleScope PSPackageForge {
             $spec.DecisionEvidence.Field | Should -Contain 'Detection'
         }
 
-        It 'blocks a Low-confidence detection decision' {
+        It 'blocks a Low-confidence detection decision' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $additional = @(
                 [EvidenceRecord]::new('SelectedContext', 'System', [EvidenceSource]::UserOverride, [ConfidenceLevel]::High)
                 [EvidenceRecord]::new('DetectionTarget', 'C:\Reviewed\app.exe', [EvidenceSource]::UserOverride, [ConfidenceLevel]::Low)

@@ -74,7 +74,7 @@ Describe 'Source guardrails' {
         $script:ModuleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
         $script:SourceFiles = Get-ChildItem -Path $script:ModuleRoot -Include '*.ps1', '*.psm1', '*.psd1' -Recurse -File |
-            Where-Object { $_.FullName -notmatch '\\(Examples|\.git)\\' }
+            Where-Object { $_.FullName -notmatch '[\\/](Examples|\.git)[\\/]' }
     }
 
     It 'never depends on the ConfigMgr console' {
@@ -96,7 +96,7 @@ Describe 'Source guardrails' {
         # the single most common packaging mistake and the module must not model it.
         # Tests are excluded: this very assertion has to name the thing it forbids.
         $offenders = @($script:SourceFiles |
-            Where-Object { $_.FullName -notmatch '\\Tests\\' } |
+            Where-Object { $_.FullName -notmatch '[\\/]Tests[\\/]' } |
             Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match 'Win32_Product' } |
             ForEach-Object { $_.Name })
 
@@ -108,7 +108,7 @@ Describe 'Source guardrails' {
         # asserts the renderer leaves no token behind has to be able to write one down.
         # Templates/ legitimately contains tokens too, and is not PowerShell source.
         $offenders = @($script:SourceFiles |
-            Where-Object { $_.FullName -notmatch '\\Tests\\' } |
+            Where-Object { $_.FullName -notmatch '[\\/]Tests[\\/]' } |
             Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '\{\{[A-Za-z0-9_]+\}\}' } |
             ForEach-Object { $_.Name })
 
@@ -133,7 +133,7 @@ Describe 'Opsec' {
 
         # .claude and .git are tooling state, not repository content, and both are ignored.
         $script:TextFiles = Get-ChildItem -Path $script:ModuleRoot -Include '*.ps1', '*.psm1', '*.psd1', '*.md', '*.json', '*.yml' -Recurse -File |
-            Where-Object { $_.FullName -notmatch '\\\.(git|claude|vs|vscode)\\' }
+            Where-Object { $_.FullName -notmatch '[\\/]\.(git|claude|vs|vscode)[\\/]' }
     }
 
     It 'contains no real environment identifiers, only documented placeholders' {

@@ -21,9 +21,11 @@
 $script:DiscoveryModuleRoot    = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script:DiscoveryInstallerPath = Get-ChildItem -Path (Join-Path $script:DiscoveryModuleRoot 'Installers') -Filter 'Firefox Setup *esr.msi' -File -ErrorAction SilentlyContinue |
     Select-Object -First 1 -ExpandProperty FullName
-$script:HasFirefoxInstaller = -not [string]::IsNullOrWhiteSpace($script:DiscoveryInstallerPath)
+$script:IsWindowsPlatform = $PSVersionTable.PSEdition -eq 'Desktop' -or $env:OS -eq 'Windows_NT'
+$script:CanRunFirefoxIntegration = $script:IsWindowsPlatform -and
+    -not [string]::IsNullOrWhiteSpace($script:DiscoveryInstallerPath)
 
-Describe 'Known quirk: Firefox ESR MSI wrapper' -Skip:(-not $script:HasFirefoxInstaller) {
+Describe 'Known quirk: Firefox ESR MSI wrapper' -Skip:(-not $script:CanRunFirefoxIntegration) {
 
     BeforeAll {
         $script:ModuleRoot    = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)

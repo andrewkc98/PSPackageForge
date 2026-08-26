@@ -3,7 +3,8 @@
     outside InModuleScope so these assertions exercise the object a real caller receives.
 #>
 
-Describe 'Get-InstallerInfo public boundary' {
+Describe 'Get-InstallerInfo public boundary' `
+    -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
     BeforeAll {
         $script:ModuleRoot   = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)

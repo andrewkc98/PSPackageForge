@@ -10,7 +10,8 @@ InModuleScope PSPackageForge {
 
     Describe 'ConvertTo-DetectionScript' {
 
-        It 'returns exit 0 with non-empty output when a file exists' {
+        It 'returns exit 0 with non-empty output when a file exists' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $target = Join-Path $TestDrive 'present.bin'
             Set-Content -LiteralPath $target -Value 'fixture'
 
@@ -30,7 +31,8 @@ InModuleScope PSPackageForge {
             $output       | Should -Not -BeNullOrEmpty
         }
 
-        It 'returns exit 0 with empty output when a file is absent' {
+        It 'returns exit 0 with empty output when a file is absent' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $rule = [DetectionSpec]::new()
             $rule.Kind       = [DetectionKind]::File
             $rule.Path       = $TestDrive
@@ -46,7 +48,8 @@ InModuleScope PSPackageForge {
             $output       | Should -BeNullOrEmpty
         }
 
-        It 'returns non-zero and STDERR when detection cannot evaluate a version' {
+        It 'returns non-zero and STDERR when detection cannot evaluate a version' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $target = Join-Path $TestDrive 'unversioned.bin'
             Set-Content -LiteralPath $target -Value 'fixture'
 
@@ -118,7 +121,8 @@ InModuleScope PSPackageForge {
             $content | Should -Not -Match 'VersionInfo\.FileVersion\s*-eq'
         }
 
-        It 'detects an Exact file-version rule from the binary version even when the FileVersion string resource differs (H1 regression)' {
+        It 'detects an Exact file-version rule from the binary version even when the FileVersion string resource differs (H1 regression)' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $target = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
             if (-not (Test-Path -LiteralPath $target)) {
                 Set-ItResult -Skipped -Because 'powershell.exe was not found at the expected System32 path.'
@@ -144,7 +148,8 @@ InModuleScope PSPackageForge {
             $output       | Should -Not -BeNullOrEmpty
         }
 
-        It 'detects a GreaterOrEqual file-version rule using zero-padded version comparison' {
+        It 'detects a GreaterOrEqual file-version rule using zero-padded version comparison' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $target = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
             if (-not (Test-Path -LiteralPath $target)) {
                 Set-ItResult -Skipped -Because 'powershell.exe was not found at the expected System32 path.'
@@ -206,7 +211,8 @@ InModuleScope PSPackageForge {
         }
     }
 
-    Describe 'Write-PackageManifest' {
+    Describe 'Write-PackageManifest' `
+        -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
         It 'writes a round-trippable authoritative manifest with raw and resolved evidence' {
             $fixture = Join-Path $ModuleRoot 'Tests\Fixtures\native-clean.msi'
@@ -230,7 +236,8 @@ InModuleScope PSPackageForge {
         }
     }
 
-    Describe 'New-PackageDocument' {
+    Describe 'New-PackageDocument' `
+        -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
         BeforeAll {
             $fixture = Join-Path $ModuleRoot 'Tests\Fixtures\native-clean.msi'
@@ -372,7 +379,8 @@ InModuleScope PSPackageForge {
         }
     }
 
-    Describe 'Test-ScaffoldOutput' {
+    Describe 'Test-ScaffoldOutput' `
+        -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
 
         BeforeAll {
             $fixture = Join-Path $ModuleRoot 'Tests\Fixtures\native-clean.msi'
