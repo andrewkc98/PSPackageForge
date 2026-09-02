@@ -23,7 +23,7 @@ New-PackageScaffold -Path ./7z2602-x64.msi -OutputPath ./out
 | Source installer | `7z2602-x64.msi` |
 | SHA256 | `DB407A4F6D4999E5C7BC00CE8A882BE94717B56E7FA68140FE3F12605D91643E` |
 | Vendor download | <https://www.7-zip.org/download.html> |
-| Generated | 2026-08-07 |
+| Generated | 2026-08-20 |
 | PSPackageForge | 0.1.0 (manifest schema 1.0) |
 | PSADT | generated with `New-PSADTPackage` from the reviewed manifest |
 

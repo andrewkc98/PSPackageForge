@@ -16,7 +16,7 @@ Give it an installer and it builds a reviewable packaging bundle containing:
 - a machine-readable package manifest
 - package documentation with a verification checklist
 
-> **Status: in development.** See [Build progress](#build-progress).
+> **Status: v1 functional scope implemented.** See [Future roadmap](#future-roadmap-remaining-work) for remaining work.
 
 ---
 
@@ -282,22 +282,22 @@ Four applications are used to exercise different parts of the packaging model.
 | **KiCad** | NSIS, versioned installation paths, and the distinction between installer arguments and MECM installation behaviour. |
 | **Obsidian** | Per-user Squirrel installation, logged-on-user requirements, and per-user registry discovery. |
 
-7-Zip is implemented first because it represents the standard MSI case.
+These are current deterministic regression cases covering the supported v1 paths; they are not a planned implementation sequence.
 
-Firefox ESR then tests wrapper-MSI handling.
+Firefox ESR covers wrapper-MSI handling.
 
-KiCad and Obsidian cover two common EXE packaging cases where installation location and execution context require additional handling.
+KiCad and Obsidian cover EXE packaging where installation location and execution context require additional handling.
 
 ---
 
 ## Requirements
 
-PSPackageForge currently targets Windows.
+Operational use targets Windows. PowerShell 7 on Ubuntu verifies portable build and analyzer behaviour plus deterministic tests; it is not an operational target for the package workflows. Live installed-application registry discovery is Windows-only.
 
 Verified PowerShell runtimes:
 
 - Windows PowerShell 5.1
-- PowerShell 7 on Ubuntu
+- PowerShell 7 on Ubuntu (portable build, analyzer, and deterministic-test verification)
 
 Windows PowerShell 5.1 remains supported because it is still widely used in MECM environments.
 
@@ -354,6 +354,21 @@ New-PackageScaffold -Path ./KiCad-Setup.exe -OutputPath ./Output `
 Imported observations are attributed to `DiscoveryJson`, which ranks above a live registry
 read because the exported document is an explicit, reviewable handoff. User overrides still
 rank above imported discovery evidence.
+
+### Use the exported renderers directly
+
+These commands use a reviewed scaffold; preview file-writing renderers with `-WhatIf` before choosing an output location:
+
+```powershell
+$scaffold = New-PackageScaffold -Path ./setup.exe -OutputPath ./Output
+$info = Get-InstallerInfo -Path ./setup.exe
+New-DetectionMethod -DetectionSpec $scaffold.PackageSpec.DetectionSpec[0] -OutputPath ./Output/Detection -WhatIf
+New-PackageDocument -ManifestPath $scaffold.ManifestPath -WhatIf
+New-MecmDeploymentSpec -ManifestPath $scaffold.ManifestPath `
+    -OutputPath ./Output/MecmDeploymentSpec.json -ContentSourcePath "\\server\share\App"
+```
+
+`Get-InstallerInfo` inspects a payload and returns evidence-backed installer facts. The other commands render reviewed inputs; they do not rediscover or invent deployment decisions.
 
 ### Generate the PSADT package
 
@@ -453,7 +468,7 @@ Current v1 progress:
 
 ---
 
-## Roadmap
+## Future roadmap (remaining work)
 
 The following items are planned outside the current v1 scope.
 
@@ -482,7 +497,9 @@ Test-PackageScaffold
 
 v1 performs a smaller set of validation checks during package generation. A dedicated validator is planned separately.
 
-### MECM and Intune deployment specifications
+### Future deployment specifications
+
+The v1 commands `New-MecmDeploymentSpec` and `New-IntuneWinPackage` are implemented; the planned item in this subsection is the separate `IntuneWin32Spec.json` contract.
 
 Machine-readable deployment specifications generated from the package manifest:
 
