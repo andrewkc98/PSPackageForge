@@ -13,6 +13,16 @@
             hash mismatch. Any such finding is folded back into the manifest and document
             before the final result is returned. Later roadmap renderers (PSADT, IntuneWin)
             consume the same manifest.
+
+        .PARAMETER DiscoveryData
+            Optional installed-application discovery JSON written by Get-InstalledAppInfo
+            on a reference machine. Imported registry observations are attributed to
+            DiscoveryJson and merged with the installer's own evidence.
+
+        .PARAMETER DiscoveryMatchId
+            Stable match identifier to select when DiscoveryData contains more than one
+            installed application. A document with one match is selected automatically;
+            a document with several is never guessed.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType('PSPackageForge.ScaffoldResult')]
@@ -30,6 +40,12 @@
         [object[]] $AdditionalEvidence = @(),
 
         [Parameter()]
+        [string] $DiscoveryData,
+
+        [Parameter()]
+        [string] $DiscoveryMatchId,
+
+        [Parameter()]
         [ValidateSet('Exact', 'GreaterOrEqual')]
         [string] $DetectionOperator = 'Exact',
 
@@ -37,8 +53,26 @@
         [switch] $FailOnLowConfidence
     )
 
+    if (-not [string]::IsNullOrWhiteSpace($DiscoveryMatchId) -and
+        [string]::IsNullOrWhiteSpace($DiscoveryData)) {
+        throw [System.ArgumentException]::new(
+            '-DiscoveryMatchId requires -DiscoveryData.', 'DiscoveryMatchId')
+    }
+
     if ($PSCmdlet.ShouldProcess($Path, "Generate packaging scaffold into '$OutputPath'")) {
-        $installerInfo = Get-InstallerInfo -Path $Path -AdditionalEvidence $AdditionalEvidence
+        $combinedEvidence = [System.Collections.Generic.List[object]]::new()
+        foreach ($record in $AdditionalEvidence) { $combinedEvidence.Add($record) }
+
+        $discoveryResult = $null
+        if (-not [string]::IsNullOrWhiteSpace($DiscoveryData)) {
+            $discoveryResult = Read-InstalledAppDiscoveryData -Path $DiscoveryData -MatchId $DiscoveryMatchId
+            foreach ($record in $discoveryResult.Evidence) { $combinedEvidence.Add($record) }
+        }
+
+        $installerInfo = Get-InstallerInfo -Path $Path -AdditionalEvidence $combinedEvidence.ToArray()
+        if ($null -ne $discoveryResult) {
+            $installerInfo.Findings = @($installerInfo.Findings) + @($discoveryResult.Findings)
+        }
         $operator = Get-ForgeEnumValue -Value $DetectionOperator -Type ([DetectionOperator]) -Default ([DetectionOperator]::Exact)
         $packageSpec = Resolve-PackageSpec -InstallerInfo $installerInfo -DetectionOperator $operator
 
@@ -101,6 +135,7 @@
             InstallerPath    = $stagedInstaller
             OutputPath       = $resolvedOutput
             Readiness        = $packageSpec.Readiness
+            DiscoveryMatchId = if ($null -ne $discoveryResult) { $discoveryResult.MatchId } else { $null }
         }
     }
 }

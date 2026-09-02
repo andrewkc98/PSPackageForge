@@ -325,6 +325,36 @@ Import-Module ./PSPackageForge/PSPackageForge.psd1
 
 This runs the same core checks used by CI.
 
+### Discover an installed application
+
+For installers that cannot reveal their installed layout or vendor uninstaller offline,
+run discovery on a Windows reference machine where the application is already installed:
+
+```powershell
+$discovery = Get-InstalledAppInfo -DisplayNameLike 'KiCad*' `
+    -OutputPath ./KiCad.discovery.json
+$discovery.Matches | Select-Object MatchId, DisplayName, RegistryIdentity
+```
+
+Discovery reads the 32-bit and 64-bit machine uninstall registry plus the current user's
+uninstall registry. It does not query Windows Installer inventory through WMI. Every match
+stays separate, carries per-field `Registry` provenance, and records missing or ambiguous
+values as findings instead of silently choosing an answer. Profiles that are not currently
+loaded remain outside v1 discovery scope.
+
+Pass the reviewed document into scaffold generation. A document with one match is selected
+automatically; when several applications matched, select the intended one by its stable ID:
+
+```powershell
+New-PackageScaffold -Path ./KiCad-Setup.exe -OutputPath ./Output `
+    -DiscoveryData ./KiCad.discovery.json `
+    -DiscoveryMatchId $discovery.Matches[0].MatchId
+```
+
+Imported observations are attributed to `DiscoveryJson`, which ranks above a live registry
+read because the exported document is an explicit, reviewable handoff. User overrides still
+rank above imported discovery evidence.
+
 ### Generate the PSADT package
 
 After `New-PackageScaffold` has produced a reviewed manifest, generate the deployable
@@ -346,6 +376,60 @@ inside `PackageManifest.json`.
 
 ---
 
+### EXE framework profiles
+
+EXE analysis is deliberately conservative and signature-based. Every string marker is
+scanned in both ASCII and UTF-16LE; `.wixburn` is matched only as an exact PE section. The
+supported signatures and profiles are:
+
+| Signature | Framework | Install arguments |
+|---|---|---|
+| ASCII or UTF-16LE `NullsoftInst` | NSIS | `/S` |
+| ASCII or UTF-16LE `Inno Setup Setup Data` | Inno Setup | `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-` |
+| ASCII or UTF-16LE `InstallShield Setup Launcher` | InstallShield | no inferred command; review required |
+| ASCII or UTF-16LE `SquirrelSetup`, `SquirrelAwareVersion`, or `Installer for Squirrel-based applications` | Squirrel | `--silent` |
+| exact PE section `.wixburn` | WiX Burn | `/quiet /norestart` |
+
+A unique recognized signature emits a framework profile. Unknown EXEs and ambiguous matches
+fail closed: they retain candidate evidence and do not receive an install command. InstallShield
+is recognized but intentionally refuses an argument profile with
+`EXE_ARGUMENT_PROFILE_UNRESOLVED`.
+
+These profiles never choose installation context, install location, uninstall behavior, or
+detection. KiCad and Obsidian regression fixtures prove this separation by taking installer
+arguments from PE evidence and context, uninstall, location, and detection from reviewed
+DiscoveryJson evidence.
+
+Every inferred EXE install command records only expected exit code `0` and adds
+`EXE_EXIT_CODES_UNVERIFIED`. Verify the vendor's exit-code contract before deployment.
+Squirrel also records `SQUIRREL_COMPLETION_UNVERIFIED`.
+
+### Build a PSADT and Intune Win32 package
+
+The deterministic offline workflow is:
+
+```powershell
+$scaffold = New-PackageScaffold -Path ./KiCad-Setup.exe -OutputPath ./Output `
+    -DiscoveryData ./KiCad.discovery.json
+New-PSADTPackage -ManifestPath $scaffold.ManifestPath
+New-IntuneWinPackage -OutputPath ./Output
+```
+
+The scaffold writes the authoritative `PackageManifest.json`, staged installer, and
+detection script. `New-PSADTPackage` creates `Output/Package/`, copies the
+hash-checked installer to `Package/Files/`, and renders the PSADT entry point and deployment
+script. The Intune command uses `Package/` as its source and writes the accepted artifact as
+`Output/IntuneWin/Invoke-AppDeployToolkit.intunewin`; `Build-IntuneWin.ps1` is written
+beside the manifest as a repeatable manual build instruction. In the result object, `OutputPath` is the `IntuneWin/` output directory and `IntuneWinPath` is the built artifact file; `IntuneWinPath` is null for `InstructionsOnly` and `-WhatIf` results.
+
+`New-IntuneWinPackage` resolves `IntuneWinAppUtil.exe` in this order: explicit
+`-IntuneWinAppUtilPath`, optional repository-local `Config/settings.psd1` setting, or
+exactly one application found on `PATH`. Zero matches produce unavailable; multiple matches
+produce an ambiguity finding. It never downloads or installs the utility. When unavailable or
+ambiguous, it returns `Status = InstructionsOnly` after writing the portable build script,
+with no fabricated artifact. A successful build requires exit code zero and exactly one
+non-empty `Invoke-AppDeployToolkit.intunewin`; its SHA-256 is returned.
+
 ## Build progress
 
 Current v1 progress:
@@ -360,12 +444,12 @@ Current v1 progress:
 - [x] Authoritative `PackageManifest.json` generation and core scaffold orchestration
 - [x] Package documentation and inline scaffold validation
 - [x] Firefox ESR wrapper regression and known-quirk integration
-- [ ] `Get-InstalledAppInfo` and discovery-data contract
-- [ ] EXE framework evidence and argument profiles
-- [ ] KiCad and Obsidian regression cases
+- [x] `Get-InstalledAppInfo` and discovery-data contract
+- [x] EXE framework evidence and argument profiles
+- [x] KiCad and Obsidian regression cases
 - [x] `New-MecmDeploymentSpec` and `MecmDeploymentSpec.json`
 - [x] `New-PSADTPackage`
-- [ ] `New-IntuneWinPackage`
+- [x] `New-IntuneWinPackage`
 
 ---
 

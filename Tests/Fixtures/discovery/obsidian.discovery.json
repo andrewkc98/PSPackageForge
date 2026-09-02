@@ -1,0 +1,23 @@
+{
+  "SchemaVersion": "1.0",
+  "GeneratedAtUtc": "2026-08-26T12:00:00.0000000Z",
+  "Query": { "DisplayNameLike": "Obsidian*" },
+  "Matches": [
+    {
+      "MatchId": "8559f8d2a42c1bb12721e93bfcab3a48c2f3443a3e56cf28d26c11aaabfc1a7d",
+      "DisplayName": "Obsidian Fixture",
+      "RegistryIdentity": { "Hive": "CurrentUser", "View": "Registry64", "SubKey": "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\obsidian-fixture" },
+      "Evidence": [
+        { "Field": "ProductName", "Value": "Obsidian Fixture", "Source": "Registry", "Confidence": "High", "Notes": "Observed DisplayName." },
+        { "Field": "Manufacturer", "Value": "Obsidian Project", "Source": "Registry", "Confidence": "High", "Notes": "Observed Publisher." },
+        { "Field": "ProductVersionRaw", "Value": "1.0.0-fixture", "Source": "Registry", "Confidence": "High", "Notes": "Observed DisplayVersion; not normalized." },
+        { "Field": "InstallLocation", "Value": "%LOCALAPPDATA%\\Obsidian Fixture", "Source": "Registry", "Confidence": "High", "Notes": "Observed portable InstallLocation token." },
+        { "Field": "SelectedContext", "Value": "User", "Source": "Registry", "Confidence": "High", "Notes": "Observed under CurrentUser." },
+        { "Field": "UninstallCommand", "Value": { "Executable": "%LOCALAPPDATA%\\Obsidian Fixture\\uninstall.exe", "ArgumentList": [], "ExpectedExitCodes": [ 0 ] }, "Source": "Registry", "Confidence": "High", "Notes": "Observed structured command; no switches inferred." },
+        { "Field": "DetectionTarget", "Value": "%LOCALAPPDATA%\\Obsidian Fixture\\Obsidian.exe", "Source": "Registry", "Confidence": "Medium", "Notes": "Observed safe executable inside InstallLocation." }
+      ],
+      "ResolvedEvidence": [], "Findings": []
+    }
+  ],
+  "Findings": []
+}

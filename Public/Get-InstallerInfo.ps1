@@ -127,13 +127,17 @@
             }
 
             ([ContainerType]::Exe) {
-                $evidence.Add([EvidenceRecord]::new('ContainerType', 'Exe', [EvidenceSource]::Inferred, [ConfidenceLevel]::High,
-                    'PE executable header.'))
-
-                # EXE framework evidence is build order step 11. Until then, say so rather
-                # than emitting a half-answer that looks complete.
-                $findings.Add((New-ForgeFinding -Severity Blocking -Code 'EXE_ANALYSIS_NOT_IMPLEMENTED' -Field 'Framework' -Message (
-                    'EXE installer framework analysis is not implemented yet (build order step 11). Identity, hash and signature are reported; installer framework and commands are not.')))
+                try {
+                    # Keep the provider result isolated until the complete read succeeds so
+                    # a reader failure cannot leave partial EXE evidence in the merge input.
+                    $result = Get-ExeEvidence -Path $resolvedPath
+                    foreach ($record in $result.Evidence) { $evidence.Add($record) }
+                    foreach ($finding in $result.Findings) { $findings.Add($finding) }
+                }
+                catch {
+                    $findings.Add((New-ForgeFinding -Severity Blocking -Code 'EXE_READ_FAILED' -Field 'ContainerType' -Message (
+                        "The file has a PE executable signature but EXE metadata could not be read: {0}" -f $_.Exception.Message)))
+                }
                 break
             }
 

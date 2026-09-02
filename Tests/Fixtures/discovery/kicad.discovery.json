@@ -1,0 +1,24 @@
+{
+  "SchemaVersion": "1.0",
+  "GeneratedAtUtc": "2026-08-26T12:00:00.0000000Z",
+  "Query": { "DisplayNameLike": "KiCad*" },
+  "Matches": [
+    {
+      "MatchId": "4385c68ab9fe5d43ddf18cb607e729be90cc1c50103fb03b9218e3950e7ae671",
+      "DisplayName": "KiCad Fixture",
+      "RegistryIdentity": { "Hive": "LocalMachine", "View": "Registry64", "SubKey": "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\kicad-fixture" },
+      "Evidence": [
+        { "Field": "ProductName", "Value": "KiCad Fixture", "Source": "Registry", "Confidence": "High", "Notes": "Observed DisplayName." },
+        { "Field": "Manufacturer", "Value": "KiCad Project", "Source": "Registry", "Confidence": "High", "Notes": "Observed Publisher." },
+        { "Field": "ProductVersionRaw", "Value": "9.0.0-fixture", "Source": "Registry", "Confidence": "High", "Notes": "Observed DisplayVersion; not normalized." },
+        { "Field": "InstallLocation", "Value": "%ProgramFiles%\\KiCad Fixture", "Source": "Registry", "Confidence": "High", "Notes": "Observed portable InstallLocation token." },
+        { "Field": "SelectedContext", "Value": "System", "Source": "Registry", "Confidence": "High", "Notes": "Observed under LocalMachine." },
+        { "Field": "Architecture", "Value": "x64", "Source": "Registry", "Confidence": "Medium", "Notes": "Registry64 view is not proof of payload architecture." },
+        { "Field": "UninstallCommand", "Value": { "Executable": "%ProgramFiles%\\KiCad Fixture\\uninstall.exe", "ArgumentList": [], "ExpectedExitCodes": [ 0 ] }, "Source": "Registry", "Confidence": "High", "Notes": "Observed structured command; no switches inferred." },
+        { "Field": "DetectionTarget", "Value": "%ProgramFiles%\\KiCad Fixture\\bin\\kicad.exe", "Source": "Registry", "Confidence": "Medium", "Notes": "Observed safe executable inside InstallLocation." }
+      ],
+      "ResolvedEvidence": [], "Findings": []
+    }
+  ],
+  "Findings": []
+}

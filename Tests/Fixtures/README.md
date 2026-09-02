@@ -142,10 +142,20 @@ and is not diffed byte-for-byte on rebuild — not a hard determinism gate.
 
 ## `framework-stubs/`
 
-*Not yet built — build order step 11.*
+Small synthetic, non-runnable PE files carrying only the identification signatures of each
+supported installer framework (`NullsoftInst`, UTF-16LE `Inno Setup Setup Data`,
+`InstallShield Setup Launcher`, `SquirrelSetup`, and an exact `.wixburn` section). They
+contain no vendor code and test framework detection, including the ambiguous case where two
+signatures match and the result must be `FRAMEWORK_AMBIGUOUS`. `malformed.exe` and
+`truncated.exe` exercise closed-failure handling.
 
-Small synthetic PE files carrying the identification signatures of each supported installer
-framework (`NullsoftInst`, `Inno Setup Setup Data`, `InstallShield`, `Squirrel`, a `.wixburn`
-section). They exist so framework detection — including the **ambiguous** case where two
-signatures match and the result must be `FRAMEWORK_AMBIGUOUS` rather than a guess — can be
-tested without downloading a single vendor installer.
+Regenerate with `.\Tests\Fixtures\New-ExeFrameworkFixtures.ps1` from the repository root.
+The generator writes fixed PE headers and payload bytes; repeated runs produce byte-identical
+files (verify with SHA-256 hashes).
+
+
+## discovery fixtures
+
+`kicad.discovery.json` and `obsidian.discovery.json` are sanitized schema `1.0` exports for the deterministic installed-application discovery workflow. They are synthetic records and contain no usernames, machine-specific paths, registry dumps, vendor binaries, or guessed installer switches. Portable `%ProgramFiles%` and `%LOCALAPPDATA%` tokens preserve observed registration locations. KiCad models a LocalMachine/Registry64 (`System`) registration; Obsidian models a CurrentUser/Registry64 (`User`) registration.
+
+Evidence rows are serialized with `Source: Registry`; `Read-InstalledAppDiscoveryData` re-attributes them to `DiscoveryJson` and appends a note retaining Registry provenance. Match IDs are lowercase SHA-256 of UTF-8 `<hive-lower>|<view-lower>|<subkey-lower>`, matching `Get-InstalledAppMatchId`. These are hand-reviewed JSON inputs, not live-registry captures.
