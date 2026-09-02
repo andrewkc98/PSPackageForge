@@ -106,7 +106,20 @@ Describe 'Get-InstallerInfo container dispatch' {
         Import-Module $script:ManifestPath -Force
     }
 
-    It 'dispatches a PE executable to the Exe branch, and blocks because framework analysis is not implemented yet' {
+    It 'dispatches a valid PE executable to the Exe provider and resolves its framework profile' {
+        $fixture = Join-Path $script:ModuleRoot 'Tests/Fixtures/framework-stubs/nsis.exe'
+
+        $result = Get-InstallerInfo -Path $fixture
+
+        $result.ContainerType | Should -Be 'Exe'
+        $result.PayloadType | Should -Be 'Exe'
+        $result.Framework | Should -Be 'Nsis'
+        $result.Findings.Code | Should -Not -Contain 'EXE_ANALYSIS_NOT_IMPLEMENTED'
+        $result.Findings.Code | Should -Not -Contain 'EXE_READ_FAILED'
+        ($result.Evidence | Where-Object Field -eq 'InstallCommand').Value.ArgumentList | Should -Be @('/S')
+    }
+
+    It 'reports EXE_READ_FAILED for malformed PE input without partial provider evidence' {
         $path = Join-Path $TestDrive 'setup.exe'
         [System.IO.File]::WriteAllBytes($path, [byte[]] @(0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00))
 
@@ -114,9 +127,11 @@ Describe 'Get-InstallerInfo container dispatch' {
 
         $result.ContainerType | Should -Be 'Exe'
 
-        $finding = $result.Findings | Where-Object { $_.Code -eq 'EXE_ANALYSIS_NOT_IMPLEMENTED' }
+        $finding = $result.Findings | Where-Object { $_.Code -eq 'EXE_READ_FAILED' }
         $finding                | Should -Not -BeNullOrEmpty
         $finding.Severity.ToString() | Should -Be 'Blocking'
+        $result.Evidence | Where-Object { $_.Source.ToString() -eq 'PeMetadata' } | Should -BeNullOrEmpty
+        $result.Findings.Code | Should -Not -Contain 'EXE_ANALYSIS_NOT_IMPLEMENTED'
     }
 
     It 'dispatches a ZIP-based package to the Msix branch, and blocks it as out of scope for v1' {

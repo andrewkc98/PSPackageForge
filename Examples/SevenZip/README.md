@@ -25,7 +25,7 @@ New-PackageScaffold -Path ./7z2602-x64.msi -OutputPath ./out
 | Vendor download | <https://www.7-zip.org/download.html> |
 | Generated | 2026-08-07 |
 | PSPackageForge | 0.1.0 (manifest schema 1.0) |
-| PSADT | not applicable; `New-PSADTPackage` is not implemented yet |
+| PSADT | generated with `New-PSADTPackage` from the reviewed manifest |
 
 `New-PackageScaffold` stages the installer alongside its output, so a full run produces a
 fourth file, `7z2602-x64.msi`, which is not reproduced here.
