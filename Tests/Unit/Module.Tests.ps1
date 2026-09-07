@@ -40,7 +40,7 @@ Describe 'Module manifest' {
         $forge.RequiredPSADTVersion   | Should -Not -BeNullOrEmpty
     }
 
-    It 'exports exactly the seven public cmdlets of the locked v1 scope plus the MECM deployment-spec renderer' {
+    It 'exports all public commands in the locked v1 scope plus Invoke-PackageForge' {
         $expected = @(
             'Get-InstalledAppInfo'
             'Get-InstallerInfo'
@@ -50,6 +50,7 @@ Describe 'Module manifest' {
             'New-PSADTPackage'
             'New-PackageDocument'
             'New-PackageScaffold'
+            'Invoke-PackageForge'
         )
 
         # Sort both sides with the same comparer. PowerShell's default sort is culture
@@ -58,6 +59,13 @@ Describe 'Module manifest' {
         $actual = (Get-Command -Module PSPackageForge -CommandType Function).Name
 
         ($actual | Sort-Object) | Should -Be ($expected | Sort-Object)
+    }
+
+    It 'exports psforge as an alias for Invoke-PackageForge after a plain module import' {
+        $alias = Get-Command -Name psforge -CommandType Alias -ErrorAction Stop
+
+        $alias.CommandType | Should -Be 'Alias'
+        $alias.Definition  | Should -Be 'Invoke-PackageForge'
     }
 
     It 'has a file on disk for every exported function' {

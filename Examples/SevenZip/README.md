@@ -11,11 +11,13 @@ never need one.** If it ever does, the general MSI path is wrong and that is the
 ## Reproducing this
 
 The vendor MSI is deliberately **not committed**. Download it yourself, verify the hash, and
-run the scaffolder:
+run the reviewed scaffold/pack workflow:
 
 ```powershell
 Import-Module ./PSPackageForge.psd1
-New-PackageScaffold -Path ./7z2602-x64.msi -OutputPath ./out
+psforge scaffold .\7z2602-x64.msi
+# review Output\7z2602-x64\PackageDocument.md and PackageManifest.json
+psforge pack .\Output\7z2602-x64
 ```
 
 | | |
@@ -27,8 +29,9 @@ New-PackageScaffold -Path ./7z2602-x64.msi -OutputPath ./out
 | PSPackageForge | 0.1.0 (manifest schema 1.0) |
 | PSADT | generated with `New-PSADTPackage` from the reviewed manifest |
 
-`New-PackageScaffold` stages the installer alongside its output, so a full run produces a
-fourth file, `7z2602-x64.msi`, which is not reproduced here.
+The scaffold stages the installer alongside its output, so a full run produces a fourth file,
+`7z2602-x64.msi`, which is not reproduced here. Packing produces the PSADT package and the
+final IntuneWin artifact locally; no generated artifact is committed in this example.
 
 ## Files
 
