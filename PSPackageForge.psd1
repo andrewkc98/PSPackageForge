@@ -22,10 +22,11 @@
         'New-MecmDeploymentSpec'
         'New-PackageDocument'
         'New-PackageScaffold'
+        'Invoke-PackageForge'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()
-    AliasesToExport      = @()
+    AliasesToExport      = @('psforge')
 
     FileList             = @(
         'PSPackageForge.psd1'

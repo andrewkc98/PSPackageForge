@@ -684,6 +684,8 @@ foreach ($scope in @('Private', 'Public')) {
     }
 }
 
-Export-ModuleMember -Function $script:ForgeManifestData.FunctionsToExport
+Set-Alias -Name psforge -Value Invoke-PackageForge -Scope Script
+
+Export-ModuleMember -Function $script:ForgeManifestData.FunctionsToExport -Alias $script:ForgeManifestData.AliasesToExport
 
 #endregion Module load

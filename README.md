@@ -16,7 +16,7 @@ Give it an installer and it builds a reviewable packaging bundle containing:
 - a machine-readable package manifest
 - package documentation with a verification checklist
 
-> **Status: in development.** See [Build progress](#build-progress).
+> **Status: v1 functional scope implemented.** See [Future roadmap](#future-roadmap-remaining-work) for remaining work.
 
 ---
 
@@ -282,22 +282,22 @@ Four applications are used to exercise different parts of the packaging model.
 | **KiCad** | NSIS, versioned installation paths, and the distinction between installer arguments and MECM installation behaviour. |
 | **Obsidian** | Per-user Squirrel installation, logged-on-user requirements, and per-user registry discovery. |
 
-7-Zip is implemented first because it represents the standard MSI case.
+These are current deterministic regression cases covering the supported v1 paths; they are not a planned implementation sequence.
 
-Firefox ESR then tests wrapper-MSI handling.
+Firefox ESR covers wrapper-MSI handling.
 
-KiCad and Obsidian cover two common EXE packaging cases where installation location and execution context require additional handling.
+KiCad and Obsidian cover EXE packaging where installation location and execution context require additional handling.
 
 ---
 
 ## Requirements
 
-PSPackageForge currently targets Windows.
+Operational use targets Windows. PowerShell 7 on Ubuntu verifies portable build and analyzer behaviour plus deterministic tests; it is not an operational target for the package workflows. Live installed-application registry discovery is Windows-only.
 
 Verified PowerShell runtimes:
 
 - Windows PowerShell 5.1
-- PowerShell 7 on Ubuntu
+- PowerShell 7 on Ubuntu (portable build, analyzer, and deterministic-test verification)
 
 Windows PowerShell 5.1 remains supported because it is still widely used in MECM environments.
 
@@ -317,6 +317,96 @@ git clone https://github.com/andrewkc98/PSPackageForge
 Import-Module ./PSPackageForge/PSPackageForge.psd1
 ```
 
+## Quick Start: the `psforge` workflow
+
+The `psforge` command keeps discovery, review, and packaging as separate steps. It does
+not download tools, deploy applications, or declare an untested package ready to ship.
+
+### 1. Discover (reference machine)
+
+Run discovery on a Windows reference machine where the application is installed. The
+uninstall registry is read across the 32-bit and 64-bit machine views plus the current
+user view. Each matching registration is returned as a separate match with its own
+evidence and findings; discovery does not merge registrations or select a match.
+
+```powershell
+psforge discover 'KiCad*' -Output ./KiCad.discovery.json
+```
+
+The long-form equivalent is:
+
+```powershell
+Invoke-PackageForge -Action discover -Path 'KiCad*' -OutputPath ./KiCad.discovery.json
+```
+
+Review the match IDs in the JSON. Use `-Match`/`-DiscoveryMatchId` on scaffold only when
+discovery returned multiple matches; a single match can be selected automatically. An
+unresolved or ambiguous registration remains a finding and is not turned into guessed
+install, uninstall, location, context, or detection data.
+
+### 2. Scaffold (installer analysis and review pause)
+
+Point scaffold at an existing installer. The default output is `Output/<basename>` with
+the installer extension removed; an explicit `-Output`/`-OutputPath` keeps the path you
+provided. The command writes the manifest, review document, staged installer, and a
+detection script when detection resolves above Low confidence.
+
+```powershell
+psforge scaffold ./KiCad-Setup.exe -Discovery ./KiCad.discovery.json -Match $matchId
+```
+
+Without discovery data, the positional form is sufficient:
+
+```powershell
+psforge scaffold ./7z2602-x64.msi
+```
+
+The long-form equivalent is:
+
+```powershell
+Invoke-PackageForge -Action scaffold -Path ./KiCad-Setup.exe -DiscoveryPath ./KiCad.discovery.json -DiscoveryMatchId $matchId
+```
+
+Native MSI analysis uses the MSI database, including ProductCode and resolved file/directory
+evidence. EXE analysis is signature-based: recognized NSIS, Inno Setup, Squirrel, and WiX
+Burn profiles receive only their known installer arguments; unknown, ambiguous, or
+InstallShield EXEs retain findings and require review. A wrapper MSI is treated as an MSI
+container with an EXE payload, not as evidence of a native MSI install or uninstall.
+
+This is a mandatory review/readiness pause. Read `PackageDocument.md` and
+`PackageManifest.json`, verify commands, context, location, detection, and findings, and
+resolve any `NeedsInput` state before packing. PSPackageForge preserves unresolved
+discovery and EXE findings rather than manufacturing evidence. Pack accepts the reviewed
+`ReviewRequired` manifest; it stops on `NeedsInput`.
+
+### 3. Pack (reviewed scaffold root)
+
+Pack the scaffold root, not the raw installer:
+
+```powershell
+psforge pack ./Output/KiCad-Setup
+```
+
+The long-form equivalent is:
+
+```powershell
+Invoke-PackageForge -Action pack -Path ./Output/KiCad-Setup
+```
+
+Pack uses the exact PSAppDeployToolkit 4.0.6 version recorded by the manifest. The module
+must already be available locally (or be supplied with the advanced
+`-PSADTModulePath` option); PSPackageForge never downloads or upgrades it. A complete
+existing `Package` is reused only after read-only structure and SHA-256 checks. Partial or
+mismatched content is refused and is not deleted or replaced.
+
+`IntuneWinAppUtil.exe` is resolved locally from an explicit `-IntuneWinAppUtilPath`, the
+optional repository `Config/settings.psd1` setting, or exactly one match on `PATH`. An
+unavailable or ambiguous utility produces `InstructionsOnly`, including the manual
+`Build-IntuneWin.ps1` instruction, with no fabricated artifact. When the utility succeeds,
+the final `.intunewin` and its SHA-256 are returned; otherwise `IntuneWinPath` and `SHA256`
+remain null. Intune's source is the PSADT `Package` directory and its setup entry point,
+never the raw installer.
+
 ### Run the project checks
 
 ```powershell
@@ -325,7 +415,7 @@ Import-Module ./PSPackageForge/PSPackageForge.psd1
 
 This runs the same core checks used by CI.
 
-### Discover an installed application
+### Advanced primitive: discover an installed application
 
 For installers that cannot reveal their installed layout or vendor uninstaller offline,
 run discovery on a Windows reference machine where the application is already installed:
@@ -355,10 +445,27 @@ Imported observations are attributed to `DiscoveryJson`, which ranks above a liv
 read because the exported document is an explicit, reviewable handoff. User overrides still
 rank above imported discovery evidence.
 
-### Generate the PSADT package
+### Advanced primitives and renderers
 
-After `New-PackageScaffold` has produced a reviewed manifest, generate the deployable
-content root with:
+These lower-level commands are useful for overrides, MECM rendering, and inspecting a
+particular stage. They use a reviewed scaffold; preview file-writing renderers with
+`-WhatIf` before choosing an output location:
+
+```powershell
+$scaffold = New-PackageScaffold -Path ./setup.exe -OutputPath ./Output
+$info = Get-InstallerInfo -Path ./setup.exe
+New-DetectionMethod -DetectionSpec $scaffold.PackageSpec.DetectionSpec[0] -OutputPath ./Output/Detection -WhatIf
+New-PackageDocument -ManifestPath $scaffold.ManifestPath -WhatIf
+New-MecmDeploymentSpec -ManifestPath $scaffold.ManifestPath `
+    -OutputPath ./Output/MecmDeploymentSpec.json -ContentSourcePath "\\server\share\App"
+```
+
+`Get-InstallerInfo` inspects a payload and returns evidence-backed installer facts. The other commands render reviewed inputs; they do not rediscover or invent deployment decisions.
+
+### Advanced primitive: generate PSADT content
+
+After `New-PackageScaffold` has produced a reviewed manifest, generate the PSADT content
+root directly with:
 
 ```powershell
 New-PSADTPackage -ManifestPath ./Output/PackageManifest.json
@@ -372,7 +479,8 @@ downloads or silently upgrades PSADT.
 
 MECM deployment specifications invoke this package through the stable
 `Invoke-AppDeployToolkit.exe` entry point; the vendor payload commands remain authoritative
-inside `PackageManifest.json`.
+inside `PackageManifest.json`. For an intentional refresh of an existing package root, use
+this primitive deliberately rather than the safe `psforge pack` reuse path.
 
 ---
 
@@ -404,9 +512,10 @@ Every inferred EXE install command records only expected exit code `0` and adds
 `EXE_EXIT_CODES_UNVERIFIED`. Verify the vendor's exit-code contract before deployment.
 Squirrel also records `SQUIRREL_COMPLETION_UNVERIFIED`.
 
-### Build a PSADT and Intune Win32 package
+### Advanced primitive build flow
 
-The deterministic offline workflow is:
+The dispatcher workflow above is the normal path. For explicit stage-by-stage control,
+the equivalent primitive flow is:
 
 ```powershell
 $scaffold = New-PackageScaffold -Path ./KiCad-Setup.exe -OutputPath ./Output `
@@ -453,7 +562,7 @@ Current v1 progress:
 
 ---
 
-## Roadmap
+## Future roadmap (remaining work)
 
 The following items are planned outside the current v1 scope.
 
@@ -482,7 +591,9 @@ Test-PackageScaffold
 
 v1 performs a smaller set of validation checks during package generation. A dedicated validator is planned separately.
 
-### MECM and Intune deployment specifications
+### Future deployment specifications
+
+The v1 commands `New-MecmDeploymentSpec` and `New-IntuneWinPackage` are implemented; the planned item in this subsection is the separate `IntuneWin32Spec.json` contract.
 
 Machine-readable deployment specifications generated from the package manifest:
 
