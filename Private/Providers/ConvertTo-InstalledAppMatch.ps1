@@ -250,15 +250,6 @@ function ConvertTo-InstalledAppMatch {
 
         $context = if ($Entry.Hive -eq 'LocalMachine') { 'System' } else { 'User' }
         & $addEvidence 'SelectedContext' $context ([ConfidenceLevel]::High) "Registration was observed under the $($Entry.Hive) hive."
-        if ($Entry.Hive -eq 'LocalMachine') {
-            $architecture = if ($Entry.View -eq 'Registry64') { 'x64' } else { 'x86' }
-            & $addEvidence 'Architecture' $architecture ([ConfidenceLevel]::Medium) (
-                "The product registered in the $($Entry.View) uninstall view. Registry view is not proof of payload architecture.")
-        }
-        else {
-            $findings.Add((New-ForgeFinding -Severity Info -Code 'INSTALLED_APP_ARCHITECTURE_UNRESOLVED' -Field 'Architecture' -Message (
-                'A current-user uninstall registration does not determine payload architecture. No architecture was inferred.')))
-        }
 
         Add-ForgeInstalledAppUninstallEvidence -Entry $Entry -Findings $findings -AddEvidence $addEvidence
         Add-ForgeInstalledAppDetectionEvidence -Entry $Entry -Findings $findings -AddEvidence $addEvidence
