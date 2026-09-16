@@ -61,10 +61,13 @@ function Uninstall-ADTDeployment
 
         $manifest = Get-Content -LiteralPath $scaffold.ManifestPath -Raw | ConvertFrom-Json
         $manifest | Should -Not -BeNullOrEmpty
-        $manifest.SchemaVersion | Should -Be '1.0'
+        $manifest.SchemaVersion | Should -Be '2.0'
         $manifest.Readiness | Should -Be 'ReviewRequired'
         $manifest.Installer.ProductName | Should -Be 'KiCad Fixture'
         $manifest.Installer.ProductCode | Should -BeNullOrEmpty
+        $manifest.Installer.InstallerArchitecture | Should -Be 'x86'
+        $manifest.Installer.ApplicationArchitecture | Should -Be 'Unknown'
+        $manifest.Installer.PSObject.Properties.Name | Should -Not -Contain 'Architecture'
         $manifest.PackageSpec.InstallCommand.Executable | Should -Be 'nsis.exe'
         @($manifest.PackageSpec.InstallCommand.ArgumentList) | Should -Be @('/S')
         $manifest.PackageSpec.SelectedContext | Should -Be 'System'
@@ -109,10 +112,13 @@ function Uninstall-ADTDeployment
         $scaffold.DetectionPath | Should -Exist
 
         $manifest = Get-Content -LiteralPath $scaffold.ManifestPath -Raw | ConvertFrom-Json
-        $manifest.SchemaVersion | Should -Be '1.0'
+        $manifest.SchemaVersion | Should -Be '2.0'
         $manifest.Readiness | Should -Be 'ReviewRequired'
         $manifest.Installer.ProductName | Should -Be 'Obsidian Fixture'
         $manifest.Installer.ProductCode | Should -BeNullOrEmpty
+        $manifest.Installer.InstallerArchitecture | Should -Be 'x64'
+        $manifest.Installer.ApplicationArchitecture | Should -Be 'Unknown'
+        $manifest.Installer.PSObject.Properties.Name | Should -Not -Contain 'Architecture'
         $manifest.PackageSpec.InstallCommand.Executable | Should -Be 'squirrel.exe'
         @($manifest.PackageSpec.InstallCommand.ArgumentList) | Should -Be @('--silent')
         $manifest.PackageSpec.SelectedContext | Should -Be 'User'

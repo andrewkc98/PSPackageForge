@@ -379,6 +379,21 @@ InModuleScope PSPackageForge {
             $json.Matches[0].Evidence[0].Confidence | Should -BeIn @('High', 'Medium', 'Low')
         }
 
+        It 'imports the committed schema-2 discovery fixtures deterministically' {
+            foreach ($fixtureName in @('kicad.discovery.json', 'obsidian.discovery.json')) {
+                $fixturePath = Join-Path $script:ModuleRoot "Tests/Fixtures/discovery/$fixtureName"
+                $first = Read-InstalledAppDiscoveryData -Path $fixturePath
+                $second = Read-InstalledAppDiscoveryData -Path $fixturePath
+
+                $first.Provider | Should -Be 'DiscoveryJson'
+                $first.Path | Should -Be (Resolve-Path -LiteralPath $fixturePath).ProviderPath
+                $first.MatchId | Should -Be $second.MatchId
+                (@($first.Evidence | ForEach-Object { $_.ToOrderedDictionary() } | ConvertTo-Json -Depth 12) -join '') |
+                    Should -Be ((@($second.Evidence | ForEach-Object { $_.ToOrderedDictionary() } | ConvertTo-Json -Depth 12) -join ''))
+                @($first.Evidence | Where-Object Field -eq 'Architecture') | Should -BeNullOrEmpty
+            }
+        }
+
         It 'honors WhatIf and does not write discovery JSON' {
             $outputPath = Join-Path $TestDrive 'whatif-discovery.json'
 
@@ -495,12 +510,17 @@ InModuleScope PSPackageForge {
             $architecture.Notes      | Should -BeLike '*original source Registry*'
         }
 
-        It 'rejects legacy schema-2 architecture evidence instead of reinterpreting it' {
-            $script:DiscoveryDocument.SchemaVersion = '2.0'
+        It 'rejects schema-1 and mixed legacy architecture input with a migration error' {
+            $script:DiscoveryDocument.SchemaVersion = '1.0'
             $script:FirstMatch.Evidence[0].Field = 'Architecture'
             $script:DiscoveryDocument | ConvertTo-Json -Depth 20 |
                 Set-Content -LiteralPath $script:DiscoveryPath -Encoding UTF8
+            { Read-InstalledAppDiscoveryData -Path $script:DiscoveryPath } |
+                Should -Throw '*not supported*'
 
+            $script:DiscoveryDocument.SchemaVersion = '2.0'
+            $script:DiscoveryDocument | ConvertTo-Json -Depth 20 |
+                Set-Content -LiteralPath $script:DiscoveryPath -Encoding UTF8
             { Read-InstalledAppDiscoveryData -Path $script:DiscoveryPath } |
                 Should -Throw "*legacy field 'Architecture'*"
         }
