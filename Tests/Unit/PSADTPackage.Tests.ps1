@@ -95,6 +95,88 @@ function Uninstall-ADTDeployment
         }
     }
 
+    Describe 'ConvertTo-PSADTConfigContent' {
+
+        BeforeAll {
+            $script:ConfigContent = @'
+@{
+    Unrelated = @{ LogPathNoAdminRights = 'leave me' }
+    Toolkit = @{
+        RequireAdmin = $true
+        LogPathNoAdminRights = 'old toolkit path'
+        RegPathNoAdminRights = 'leave this too'
+        TempPathNoAdminRights = 'leave this too'
+    }
+    MSI = @{
+        LogPathNoAdminRights = 'old msi path'
+    }
+}
+'@
+        }
+
+        It 'patches only the user-context target values and reparses as a config document' {
+            $result = ConvertTo-PSADTConfigContent -ConfigContent $script:ConfigContent -SelectedContext User
+
+            $result | Should -Match 'RequireAdmin = \$false'
+            $result | Should -Match "Unrelated = @{ LogPathNoAdminRights = 'leave me' }"
+            $result | Should -Match "RegPathNoAdminRights = 'leave this too'"
+            $result | Should -Match "TempPathNoAdminRights = 'leave this too'"
+
+            $path = Join-Path $TestDrive 'config.psd1'
+            Set-Content -LiteralPath $path -Value $result -Encoding UTF8 -NoNewline
+            $document = Import-PowerShellDataFile -LiteralPath $path
+            $document.Toolkit.RequireAdmin | Should -BeFalse
+            $document.Toolkit.LogPathNoAdminRights | Should -Be '$envLocalAppData\Logs\Software'
+            $document.MSI.LogPathNoAdminRights | Should -Be '$envLocalAppData\Logs\Software'
+            $document.Unrelated.LogPathNoAdminRights | Should -Be 'leave me'
+            $document.Toolkit.RegPathNoAdminRights | Should -Be 'leave this too'
+            $document.Toolkit.TempPathNoAdminRights | Should -Be 'leave this too'
+
+            $tokens = $null
+            $errors = $null
+            $parsed = [System.Management.Automation.Language.Parser]::ParseInput($result, [ref] $tokens, [ref] $errors)
+            @($errors).Count | Should -Be 0
+            $parsed.EndBlock.Statements.Count | Should -Be 1
+            $result | Should -Not -Match '\$envLocalAppData\\Logs\\Software"'
+        }
+
+        It 'returns System content byte-identically and requires literal true' {
+            $result = ConvertTo-PSADTConfigContent -ConfigContent $script:ConfigContent -SelectedContext System
+            $result | Should -BeExactly $script:ConfigContent
+
+            $bad = $script:ConfigContent.Replace('RequireAdmin = $true', 'RequireAdmin = $false')
+            { ConvertTo-PSADTConfigContent -ConfigContent $bad -SelectedContext System } |
+                Should -Throw '*literal $true*'
+        }
+
+        It 'accepts quoted literal section and target keys' {
+            $content = @'
+@{ 'Toolkit' = @{ 'RequireAdmin' = $true; 'LogPathNoAdminRights' = 'x' }; "MSI" = @{ "LogPathNoAdminRights" = 'y' } }
+'@
+            { ConvertTo-PSADTConfigContent -ConfigContent $content -SelectedContext User } |
+                Should -Not -Throw
+        }
+
+        It 'fails closed for malformed, duplicate, missing, and wrongly nested targets' {
+            $cases = @(
+                '@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = ''x'' }; MSI = @{ LogPathNoAdminRights = ''y'' }'
+                '@{ Toolkit = @{ RequireAdmin = $true; RequireAdmin = $true; LogPathNoAdminRights = ''x'' }; MSI = @{ LogPathNoAdminRights = ''y'' } }'
+                '@{ Toolkit = @{ RequireAdmin = $true }; MSI = @{ LogPathNoAdminRights = ''y'' } }'
+                '@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = ''x'' }; MSI = @{ Nested = @{ LogPathNoAdminRights = ''y'' } } }'
+                '@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = @{} }; MSI = @{ LogPathNoAdminRights = ''y'' } }'
+                '@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = ''x'' }; MSI = @{ LogPathNoAdminRights = ''y'' } }; @{}'
+                '@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = ''x'' }; Toolkit = @{}; MSI = @{ LogPathNoAdminRights = ''y'' } }'
+                '@{ Toolkit = @{ RequireAdmin = (Get-Value); LogPathNoAdminRights = ''x'' }; MSI = @{ LogPathNoAdminRights = ''y'' } }'
+                'param(); @{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = ''x'' }; MSI = @{ LogPathNoAdminRights = ''y'' } }'
+            )
+
+            foreach ($case in $cases) {
+                { ConvertTo-PSADTConfigContent -ConfigContent $case -SelectedContext User } |
+                    Should -Throw
+            }
+        }
+    }
+
     Describe 'Resolve-PSADTTemplateCommand' {
 
         It 'fails clearly and never downloads when the exact pinned version is unavailable' {
