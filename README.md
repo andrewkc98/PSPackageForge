@@ -314,8 +314,44 @@ The ConfigMgr console is not required. PSPackageForge does not depend on `Config
 
 ```powershell
 git clone https://github.com/andrewkc98/PSPackageForge
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 Import-Module ./PSPackageForge/PSPackageForge.psd1
 ```
+
+Run the `Set-ExecutionPolicy` command in each new PowerShell window before importing
+the module. `-Scope Process` applies only to the current session, does not require
+administrator rights, and is discarded when that window closes. This is the standard
+setup command for a cloned checkout.
+
+If you want the setting to persist for your account, use the less permissive
+RemoteSigned policy instead:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+```
+
+This also does not require administrator rights and remains in effect for future
+PowerShell sessions. Close the current Bypass session and open a new window after
+setting it so the new policy is used.
+
+If the repository came from a downloaded ZIP, Windows may mark the archive as coming
+from the internet. Before extracting a trusted archive, open its Properties and
+select **Unblock**, then extract it. If the archive is already extracted, narrowly
+unblock only the trusted PowerShell files before importing:
+
+```powershell
+Get-ChildItem -Path ./PSPackageForge -Recurse -File -Include *.ps1,*.psm1,*.psd1 |
+    Unblock-File
+```
+
+If the policy command has no effect, check whether Group Policy overrides it:
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+See Microsoft's documentation for [Set-ExecutionPolicy](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-executionpolicy?view=powershell-5.1)
+and [Unblock-File](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/unblock-file?view=powershell-5.1).
 
 ## Quick Start: the `psforge` workflow
 
