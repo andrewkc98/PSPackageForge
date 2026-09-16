@@ -29,8 +29,8 @@ the package -- it is meant to take about two minutes.
 
 | Field | Value |
 |---|---|
-| Filename | `{{INSTALLER_FILENAME}}` |
-| SHA256 | `{{SHA256}}` |
+| Filename | {{INSTALLER_FILENAME}} |
+| SHA256 | {{SHA256}} |
 | Size | {{FILE_SIZE}} |
 | Signature | {{SIGNATURE_STATUS}} |
 | Signer | {{SIGNER_SUBJECT}} |
@@ -41,8 +41,8 @@ the package -- it is meant to take about two minutes.
 | Product name | {{PRODUCT_NAME}} |
 | Manufacturer | {{MANUFACTURER}} |
 | Product version (raw) | {{PRODUCT_VERSION_RAW}} |
-| Product code | `{{PRODUCT_CODE}}` |
-| Upgrade code | `{{UPGRADE_CODE}}` |
+| Product code | {{PRODUCT_CODE}} |
+| Upgrade code | {{UPGRADE_CODE}} |
 
 > **UpgradeCode note.** `UpgradeCode` identifies a related Windows Installer product family
 > (the set of MSIs that can upgrade one another). It is **not** a ConfigMgr supersedence

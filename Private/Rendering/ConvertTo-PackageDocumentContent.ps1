@@ -38,6 +38,41 @@
 }
 
 
+function ConvertTo-DocumentCodeSpan {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object] $Value,
+
+        [Parameter()]
+        [switch] $ForTable
+    )
+
+    if ($null -eq $Value) { $text = '(not resolved)' }
+    else {
+        $text = "$Value"
+        if ([string]::IsNullOrEmpty($text)) { $text = '(not resolved)' }
+    }
+
+    $text = $text -replace '\r?\n|\r', ' '
+    $longestRun = 0
+    foreach ($match in [regex]::Matches($text, '`+')) {
+        if ($match.Length -gt $longestRun) { $longestRun = $match.Length }
+    }
+    $delimiter = ('`' * ($longestRun + 1))
+    $needsPadding =
+        ((-not [string]::IsNullOrWhiteSpace($text)) -and ($text.StartsWith(' ') -or $text.EndsWith(' '))) -or
+        $text.StartsWith('`') -or $text.EndsWith('`')
+    if ($needsPadding) {
+        $text = " $text "
+    }
+    if ($ForTable) { $text = $text.Replace('|', '\|') }
+    return $delimiter + $text + $delimiter
+}
+
+
 function Format-DocumentFileSize {
     [CmdletBinding()]
     [OutputType([string])]
@@ -155,13 +190,13 @@ function Format-DocumentDetectionSection {
 
     switch ("$($rule.Kind)") {
         'File' {
-            $lines.Add('| Path | `{0}` |' -f (ConvertTo-DocumentText $rule.Path))
-            $lines.Add('| File name | `{0}` |' -f (ConvertTo-DocumentText $rule.FileName))
+            $lines.Add('| Path | {0} |' -f (ConvertTo-DocumentCodeSpan $rule.Path -ForTable))
+            $lines.Add('| File name | {0} |' -f (ConvertTo-DocumentCodeSpan $rule.FileName -ForTable))
             $lines.Add('| Uses wildcard path | {0} |' -f (ConvertTo-DocumentText ([bool] $rule.UsesWildcardPath)))
         }
         'Registry' {
-            $lines.Add('| Key path | `{0}` |' -f (ConvertTo-DocumentText $rule.KeyPath))
-            $lines.Add('| Value name | `{0}` |' -f (ConvertTo-DocumentText $rule.ValueName))
+            $lines.Add('| Key path | {0} |' -f (ConvertTo-DocumentCodeSpan $rule.KeyPath -ForTable))
+            $lines.Add('| Value name | {0} |' -f (ConvertTo-DocumentCodeSpan $rule.ValueName -ForTable))
             $lines.Add('| Registry view | {0} |' -f (ConvertTo-DocumentText $rule.RegistryView))
         }
     }
@@ -263,7 +298,7 @@ function Format-DocumentProvenanceTable {
     foreach ($winner in $winners) {
         $winnerNotesRaw = Get-DocumentOptionalProperty -InputObject $winner -Name 'Notes'
         $notes = if ([string]::IsNullOrWhiteSpace("$winnerNotesRaw")) { '' } else { ConvertTo-DocumentText $winnerNotesRaw }
-        $lines.Add(('| `{0}` | {1} | {2} | {3} | {4} |' -f $winner.Field, (ConvertTo-DocumentText $winner.Value), (ConvertTo-DocumentText $winner.Source), (ConvertTo-DocumentText $winner.Confidence), $notes))
+        $lines.Add(('| {0} | {1} | {2} | {3} | {4} |' -f (ConvertTo-DocumentCodeSpan $winner.Field -ForTable), (ConvertTo-DocumentText $winner.Value), (ConvertTo-DocumentText $winner.Source), (ConvertTo-DocumentText $winner.Confidence), $notes))
 
         $candidates = @($raw | Where-Object { $_.Field -eq $winner.Field })
         $distinctValues = @($candidates | ForEach-Object { ConvertTo-DocumentText $_.Value } | Select-Object -Unique)
@@ -275,11 +310,39 @@ function Format-DocumentProvenanceTable {
 
             $candidateNotesRaw = Get-DocumentOptionalProperty -InputObject $candidate -Name 'Notes'
             $candidateNotes = if ([string]::IsNullOrWhiteSpace("$candidateNotesRaw")) { '' } else { ConvertTo-DocumentText $candidateNotesRaw }
-            $lines.Add(('| `{0}` (raw, not selected) | {1} | {2} | {3} | {4} |' -f $candidate.Field, (ConvertTo-DocumentText $candidate.Value), (ConvertTo-DocumentText $candidate.Source), (ConvertTo-DocumentText $candidate.Confidence), $candidateNotes))
+            $lines.Add(('| {0} (raw, not selected) | {1} | {2} | {3} | {4} |' -f (ConvertTo-DocumentCodeSpan $candidate.Field -ForTable), (ConvertTo-DocumentText $candidate.Value), (ConvertTo-DocumentText $candidate.Source), (ConvertTo-DocumentText $candidate.Confidence), $candidateNotes))
         }
     }
 
     return ($lines -join "`n")
+}
+
+
+function Get-DocumentApplicationArchitecture {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object] $Installer
+    )
+
+    $architecture = "$(Get-DocumentOptionalProperty -InputObject $Installer -Name 'ApplicationArchitecture')"
+    $evidence = @(
+        Get-DocumentOptionalProperty -InputObject $Installer -Name 'ResolvedEvidence' |
+            Where-Object { "$(Get-DocumentOptionalProperty -InputObject $_ -Name 'Field')" -eq 'ApplicationArchitecture' }
+    )
+    $confidence = if ($evidence.Count -gt 0) {
+        "$(Get-DocumentOptionalProperty -InputObject $evidence[0] -Name 'Confidence')"
+    }
+    else { '' }
+
+    if ([string]::IsNullOrWhiteSpace($architecture) -or
+        $architecture -eq 'Unknown' -or
+        $confidence -eq 'Low') {
+        return 'Unknown'
+    }
+    return $architecture
 }
 
 
@@ -317,19 +380,19 @@ function ConvertTo-PackageDocumentContent {
         SCHEMA_VERSION      = ConvertTo-DocumentText $Manifest.SchemaVersion
         GENERATED_AT_UTC    = ConvertTo-DocumentText $Manifest.GeneratedAtUtc
         READINESS           = ConvertTo-DocumentText $Manifest.Readiness
-        INSTALLER_FILENAME  = ConvertTo-DocumentText $installer.FileName
-        SHA256              = ConvertTo-DocumentText $installer.SHA256
+        INSTALLER_FILENAME  = ConvertTo-DocumentCodeSpan $installer.FileName -ForTable
+        SHA256              = ConvertTo-DocumentCodeSpan $installer.SHA256 -ForTable
         FILE_SIZE           = Format-DocumentFileSize ([long] $installer.FileSize)
         SIGNATURE_STATUS    = Format-DocumentSignatureStatus $installer.Signature
         SIGNER_SUBJECT      = ConvertTo-DocumentText $installer.Signature.SignerSubject
         CONTAINER_TYPE      = ConvertTo-DocumentText $installer.ContainerType
         PAYLOAD_TYPE        = ConvertTo-DocumentText $installer.PayloadType
         MSI_KIND            = ConvertTo-DocumentText $installer.MsiKind
-        ARCHITECTURE        = ConvertTo-DocumentText $installer.Architecture
+        ARCHITECTURE        = ConvertTo-DocumentText (Get-DocumentApplicationArchitecture -Installer $installer)
         MANUFACTURER        = ConvertTo-DocumentText $installer.Manufacturer
         PRODUCT_VERSION_RAW = ConvertTo-DocumentText $installer.ProductVersionRaw
-        PRODUCT_CODE        = ConvertTo-DocumentText $installer.ProductCode
-        UPGRADE_CODE        = ConvertTo-DocumentText $installer.UpgradeCode
+        PRODUCT_CODE        = ConvertTo-DocumentCodeSpan $installer.ProductCode -ForTable
+        UPGRADE_CODE        = ConvertTo-DocumentCodeSpan $installer.UpgradeCode -ForTable
         WRAPPER_WARNING     = Format-DocumentWrapperWarning $installer.MsiKind
         INSTALL_COMMAND     = Format-DocumentCommand $packageSpec.InstallCommand
         UNINSTALL_COMMAND   = Format-DocumentCommand $packageSpec.UninstallCommand

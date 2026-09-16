@@ -8,6 +8,97 @@ Import-Module (Join-Path $ModuleRoot 'PSPackageForge.psd1') -Force
 
 InModuleScope PSPackageForge {
 
+    Describe 'Markdown document value helpers' {
+
+        It 'renders a complete code span without escaping paths, braces, pipes, or backticks' {
+            $value = ' C:\Program Files\A{b}|x``' + [Environment]::NewLine + ' '
+            $result = ConvertTo-DocumentCodeSpan $value
+
+            $result.Substring(0, 3) | Should -Be '```'
+            $result.Substring($result.Length - 3) | Should -Be '```'
+            $result.Substring(3, $result.Length - 6) | Should -Be '  C:\Program Files\A{b}|x``   '
+        }
+
+        It 'uses a delimiter longer than the longest internal backtick run' {
+            $result = ConvertTo-DocumentCodeSpan 'left````right'
+
+            $result | Should -Be '`````left````right`````'
+        }
+
+        It 'separates delimiters from boundary backticks and preserves whitespace-only values' {
+            ConvertTo-DocumentCodeSpan '`edge`' | Should -Be '`` `edge` ``'
+            ConvertTo-DocumentCodeSpan '   ' | Should -Be '`   `'
+        }
+
+        It 'keeps ordinary prose escaping separate from code-span rendering' {
+            ConvertTo-DocumentText 'C:\A{b}|x' | Should -Be 'C:\\A\{b\}\|x'
+            ConvertTo-DocumentCodeSpan 'C:\A{b}|x' | Should -Be '`C:\A{b}|x`'
+            ConvertTo-DocumentCodeSpan 'C:\A{b}|x' -ForTable | Should -Be '`C:\A{b}\|x`'
+        }
+
+        It 'renders unresolved and low-confidence application architecture as Unknown' {
+            Get-DocumentApplicationArchitecture ([pscustomobject]@{
+                ApplicationArchitecture = 'x64'
+                ResolvedEvidence = @([pscustomobject]@{
+                    Field = 'ApplicationArchitecture'
+                    Confidence = 'Low'
+                })
+            }) | Should -Be 'Unknown'
+
+            Get-DocumentApplicationArchitecture ([pscustomobject]@{}) | Should -Be 'Unknown'
+        }
+
+        It 'renders high-confidence schema-2 application architecture' {
+            Get-DocumentApplicationArchitecture ([pscustomobject]@{
+                ApplicationArchitecture = 'x64'
+                ResolvedEvidence = @([pscustomobject]@{
+                    Field = 'ApplicationArchitecture'
+                    Confidence = 'High'
+                })
+            }) | Should -Be 'x64'
+        }
+
+        It 'renders complete template code spans without adding a second wrapper' {
+            $manifest = [pscustomobject]@{
+                Generator = [pscustomobject]@{ Version = '1.0' }
+                SchemaVersion = 2
+                GeneratedAtUtc = '2026-01-01T00:00:00Z'
+                Readiness = 'ReviewRequired'
+                Installer = [pscustomobject]@{
+                    ProductName = 'Demo'
+                    FileName = 'C:\Path\`tool`|x'
+                    SHA256 = 'abc'
+                    FileSize = 3
+                    Signature = [pscustomobject]@{ IsSigned = $false; Status = 'Unsigned'; SignerSubject = $null }
+                    ContainerType = 'Exe'
+                    PayloadType = 'Exe'
+                    MsiKind = 'NotMsi'
+                    ApplicationArchitecture = 'x64'
+                    Manufacturer = 'Vendor'
+                    ProductVersionRaw = '1.0'
+                    ProductCode = '{ABC}'
+                    UpgradeCode = '{XYZ}'
+                    Evidence = @()
+                    ResolvedEvidence = @()
+                }
+                PackageSpec = [pscustomobject]@{
+                    InstallCommand = $null
+                    UninstallCommand = $null
+                    DetectionSpec = @()
+                    SelectedContext = 'System'
+                    RequiresLogonWhenUserContext = $false
+                    ReturnCodeMap = @()
+                }
+                Findings = @()
+            }
+
+            $content = ConvertTo-PackageDocumentContent -Manifest $manifest
+            $content | Should -Match ([regex]::Escape('| Filename | ``C:\Path\`tool`\|x`` |'))
+            $content | Should -Match ([regex]::Escape('| Product code | `{ABC}` |'))
+            $content | Should -Not -Match ([regex]::Escape('| Filename | ```'))
+        }
+    }
+
     Describe 'ConvertTo-DetectionScript' {
 
         BeforeAll {
