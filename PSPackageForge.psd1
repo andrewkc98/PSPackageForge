@@ -7,7 +7,7 @@
     CompanyName          = 'Unknown'
     Copyright            = '(c) Andrew Tucker. All rights reserved.'
 
-    Description          = 'Offline MECM/Intune packaging scaffolder. Identifies an installer, gathers evidence with per-field provenance, resolves install/uninstall/detection decisions, and emits a reviewable packaging bundle. Never emits a confident wrong answer: unresolved critical decisions block runnable output rather than receiving a default.'
+    Description          = 'Preview 0.2 offline MECM/Intune packaging scaffolder. Identifies an installer, gathers evidence with per-field provenance, resolves install/uninstall/detection decisions, and emits a reviewable packaging bundle. Active critical blockers are reported, and runnable output fails closed while blockers remain unmet; no deployment guarantee is provided.'
 
     # 5.1 is non-negotiable -- it is what MECM environments actually run.
     PowerShellVersion    = '5.1'
@@ -38,7 +38,7 @@
             Tags         = @('MECM', 'ConfigMgr', 'SCCM', 'Intune', 'Packaging', 'PSADT', 'MSI', 'Deployment', 'Windows')
             ProjectUri   = 'https://github.com/andrewkc98/PSPackageForge'
             LicenseUri   = 'https://github.com/andrewkc98/PSPackageForge/blob/main/LICENSE'
-            ReleaseNotes = 'Initial development release. Offline scaffolding only; see the roadmap in README.md for deferred features.'
+            ReleaseNotes = 'Preview 0.2 initial-development release. Offline scaffolding records evidence provenance and active critical blockers, and fails closed for runnable output when blockers remain unmet. No deployment guarantee; see the roadmap in README.md for deferred features.'
         }
 
         # Pinned toolchain versions. Recorded in every PackageManifest.json so a generated
