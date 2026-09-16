@@ -22,7 +22,7 @@ function Invoke-IntuneWinAppUtil {
         [string] $OutputPath
     )
 
-    $arguments = @(
+    $arguments = ConvertTo-WindowsArgumentString -ArgumentList @(
         '-c', $PackagePath,
         '-s', 'Invoke-AppDeployToolkit.exe',
         '-o', $OutputPath,

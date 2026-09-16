@@ -44,6 +44,26 @@
 }
 
 
+function ConvertTo-WindowsArgumentString {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string[]] $ArgumentList
+    )
+
+    $tokens = [System.Collections.Generic.List[string]]::new()
+    foreach ($argument in $ArgumentList) {
+        $tokens.Add((ConvertTo-WindowsCommandLineToken -Value $(if ($null -eq $argument) { '' } else { $argument })))
+    }
+
+    return ($tokens -join ' ')
+}
+
+
 function ConvertTo-CommandString {
     <#
         .SYNOPSIS
@@ -61,12 +81,9 @@ function ConvertTo-CommandString {
             throw [System.InvalidOperationException]::new('Cannot render an unresolved CommandSpec.')
         }
 
-        $tokens = [System.Collections.Generic.List[string]]::new()
-        $tokens.Add((ConvertTo-WindowsCommandLineToken -Value $CommandSpec.Executable))
-        foreach ($argument in $CommandSpec.ArgumentList) {
-            $tokens.Add((ConvertTo-WindowsCommandLineToken -Value $(if ($null -eq $argument) { '' } else { $argument })))
-        }
-
-        return ($tokens -join ' ')
+        $executable = ConvertTo-WindowsCommandLineToken -Value $CommandSpec.Executable
+        $arguments  = ConvertTo-WindowsArgumentString -ArgumentList $CommandSpec.ArgumentList
+        if ([string]::IsNullOrEmpty($arguments)) { return $executable }
+        return $executable + ' ' + $arguments
     }
 }

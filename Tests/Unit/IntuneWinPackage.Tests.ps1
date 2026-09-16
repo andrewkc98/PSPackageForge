@@ -177,21 +177,56 @@ InModuleScope PSPackageForge {
         }
     }
 
+    Describe 'Windows command-line argument rendering' {
+        It 'renders each argument with Windows quoting rules and joins with one space' {
+            ConvertTo-WindowsArgumentString -ArgumentList @('ordinary', 'two words', '') |
+                Should -Be 'ordinary "two words" ""'
+        }
+
+        It 'preserves embedded quotes and doubles trailing backslashes inside quotes' {
+            ConvertTo-WindowsArgumentString -ArgumentList @('say"hello', 'C:\Program Files\', 'C:\Program Files\"') |
+                Should -Be '"say\"hello" "C:\Program Files\\" "C:\Program Files\\\""'
+        }
+
+        It 'leaves an ordinary trailing backslash unquoted and supports an empty list' {
+            ConvertTo-WindowsArgumentString -ArgumentList @('C:\plain\') | Should -Be 'C:\plain\'
+            ConvertTo-WindowsArgumentString -ArgumentList @() | Should -Be ''
+        }
+
+        It 'renders a command with no arguments without a trailing space' {
+            ConvertTo-CommandString -CommandSpec ([CommandSpec]::new('tool.exe', @())) |
+                Should -Be 'tool.exe'
+        }
+    }
+
     Describe 'Invoke-IntuneWinAppUtil' {
         It 'passes the exact structured arguments and returns the process exit code' {
             $script:capture = $null
             Mock Start-Process {
                 param($FilePath, $ArgumentList, $WorkingDirectory, $Wait, $PassThru)
-                $script:capture = [pscustomobject]@{ FilePath=$FilePath; ArgumentList=@($ArgumentList); WorkingDirectory=$WorkingDirectory; Wait=$Wait; PassThru=$PassThru }
+                $script:capture = [pscustomobject]@{ FilePath=$FilePath; ArgumentList=$ArgumentList; WorkingDirectory=$WorkingDirectory; Wait=$Wait; PassThru=$PassThru }
                 [pscustomobject]@{ ExitCode=17 }
             }
             $code = Invoke-IntuneWinAppUtil -IntuneWinAppUtilPath 'C:\tools\IntuneWinAppUtil.exe' -PackagePath 'C:\scaffold\Package' -OutputPath 'C:\scaffold\IntuneWin'
             $code | Should -Be 17
             $script:capture.FilePath | Should -Be 'C:\tools\IntuneWinAppUtil.exe'
-            $script:capture.ArgumentList | Should -Be @('-c', 'C:\scaffold\Package', '-s', 'Invoke-AppDeployToolkit.exe', '-o', 'C:\scaffold\IntuneWin', '-q')
+            $script:capture.ArgumentList | Should -Be '-c C:\scaffold\Package -s Invoke-AppDeployToolkit.exe -o C:\scaffold\IntuneWin -q'
             ($script:capture.WorkingDirectory -replace "\\","/") | Should -Be "C:/scaffold"
             $script:capture.Wait | Should -BeTrue
             $script:capture.PassThru | Should -BeTrue
+        }
+
+        It 'passes one pre-rendered argument string with quoted path boundaries' {
+            $script:capture = $null
+            Mock Start-Process {
+                param($ArgumentList)
+                $script:capture = $ArgumentList
+                [pscustomobject]@{ ExitCode=0 }
+            }
+
+            Invoke-IntuneWinAppUtil -IntuneWinAppUtilPath 'C:\tools\IntuneWinAppUtil.exe' -PackagePath 'C:\scaffold root\Package' -OutputPath 'C:\output root\IntuneWin' | Should -Be 0
+
+            $script:capture | Should -Be '-c "C:\scaffold root\Package" -s Invoke-AppDeployToolkit.exe -o "C:\output root\IntuneWin" -q'
         }
         It 'does not contain shell interpretation, download, deletion, or validation logic' {
             $source = Get-Content -LiteralPath (Join-Path $script:ModuleRoot 'Private/Intune/Invoke-IntuneWinAppUtil.ps1') -Raw
