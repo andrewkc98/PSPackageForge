@@ -22,9 +22,10 @@ InModuleScope PSPackageForge {
             $spec = Resolve-PackageSpec -InstallerInfo $info
 
             $spec.InstallCommand.Executable    | Should -Be 'msiexec.exe'
-            $spec.InstallCommand.ArgumentList  | Should -Be @('/i', 'native-clean.msi', '/qn')
-            $spec.UninstallCommand.ArgumentList | Should -Be @('/x', $info.ProductCode, '/qn')
+            $spec.InstallCommand.ArgumentList  | Should -Be @('/i', 'native-clean.msi', '/qn', 'REBOOT=ReallySuppress')
+            $spec.UninstallCommand.ArgumentList | Should -Be @('/x', $info.ProductCode, '/qn', 'REBOOT=ReallySuppress')
             $spec.UninstallCommand.ArgumentList | Should -Not -Contain 'native-clean.msi'
+            $spec.RebootBehavior | Should -Be ([RebootBehaviorType]::SuppressReboot)
         }
 
         It 'produces ReviewRequired only when all four critical decisions resolve' `
@@ -90,6 +91,16 @@ InModuleScope PSPackageForge {
             $codes.Code | Should -Contain 1618
             $codes.Code | Should -Contain 1707
             $codes.Code | Should -Not -Contain 1619
+        }
+
+        It 'uses SuppressReboot as the default reboot behavior for resolved package specs' `
+            -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
+            $context = [EvidenceRecord]::new(
+                'SelectedContext', 'System', [EvidenceSource]::UserOverride, [ConfidenceLevel]::High)
+            $info = Get-InstallerInfo -Path $script:FixturePath -AdditionalEvidence $context
+
+            (Resolve-PackageSpec -InstallerInfo $info).RebootBehavior |
+                Should -Be ([RebootBehaviorType]::SuppressReboot)
         }
 
         It 'never generates an msiexec uninstall for a wrapper MSI' {

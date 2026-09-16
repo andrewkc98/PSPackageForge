@@ -227,7 +227,7 @@ InModuleScope PSPackageForge {
             $command.Value.Executable   | Should -BeLike '*msiexec*'
             $command.Value.ArgumentList | Should -Contain '/x'
             $command.Value.ArgumentList | Should -Contain $productCode
-            $command.Value.ArgumentList | Should -Contain '/qn'
+            $command.Value.ArgumentList | Should -Be @('/x', $productCode, '/qn', 'REBOOT=ReallySuppress')
         }
 
         It 'refuses a malformed MSI registration rather than treating its subkey as a product code' {

@@ -105,7 +105,7 @@ function Resolve-PackageSpec {
         $spec.SchemaVersion   = $script:ManifestSchemaVersion
         $spec.GeneratorVersion = "$script:GeneratorVersion"
         $spec.ReturnCodeMap   = Get-DefaultReturnCodeMap
-        $spec.RebootBehavior  = [RebootBehaviorType]::NoAction
+        $spec.RebootBehavior  = [RebootBehaviorType]::SuppressReboot
 
         foreach ($finding in $InstallerInfo.Findings) {
             if ($finding.IsBlocking()) { $blocking.Add($finding) }
@@ -163,7 +163,7 @@ function Resolve-PackageSpec {
         if (-not $installResolved) {
             if ($InstallerInfo.ContainerType -eq [ContainerType]::Msi) {
                 $spec.InstallCommand = [CommandSpec]::new(
-                    'msiexec.exe', @('/i', $InstallerInfo.FileName, '/qn'), @(0, 3010, 1641, 1707))
+                    'msiexec.exe', @('/i', $InstallerInfo.FileName, '/qn', 'REBOOT=ReallySuppress'), @(0, 3010, 1641, 1707))
                 $decisionEvidence.Add([EvidenceRecord]::new(
                     'InstallCommand', $spec.InstallCommand.ToOrderedDictionary(), [EvidenceSource]::MsiDatabase,
                     [ConfidenceLevel]::High, 'Standard MSI quiet-install command from the supplied MSI filename.'))
@@ -212,7 +212,7 @@ function Resolve-PackageSpec {
                     $InstallerInfo.SupportsMsiUninstall -and
                     -not [string]::IsNullOrWhiteSpace($InstallerInfo.ProductCode)) {
                 $spec.UninstallCommand = [CommandSpec]::new(
-                    'msiexec.exe', @('/x', $InstallerInfo.ProductCode, '/qn'), @(0, 3010, 1641, 1707))
+                    'msiexec.exe', @('/x', $InstallerInfo.ProductCode, '/qn', 'REBOOT=ReallySuppress'), @(0, 3010, 1641, 1707))
                 $decisionEvidence.Add([EvidenceRecord]::new(
                     'UninstallCommand', $spec.UninstallCommand.ToOrderedDictionary(), [EvidenceSource]::MsiDatabase,
                     [ConfidenceLevel]::High, 'Native MSI uninstall uses ProductCode, never the source MSI filename.'))
