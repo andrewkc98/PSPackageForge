@@ -70,6 +70,8 @@
             'InstallLocation'
             'SelectedContext'
             'DetectionTarget'
+            'InstallerArchitecture'
+            'ApplicationArchitecture'
         )
     )
 

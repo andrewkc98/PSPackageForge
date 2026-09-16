@@ -197,6 +197,62 @@ InModuleScope PSPackageForge {
             }
         }
 
+        Context 'Architecture conflicts' {
+
+            It 'treats a higher-precedence Medium installer architecture that disagrees with a lower-precedence High value as critical' {
+                foreach ($field in @('InstallerArchitecture', 'ApplicationArchitecture')) {
+                    $evidence = @(
+                        [EvidenceRecord]::new($field, 'x64', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High)
+                        [EvidenceRecord]::new($field, 'x86', [EvidenceSource]::DiscoveryJson, [ConfidenceLevel]::Medium)
+                    )
+
+                    $result  = Merge-InstallerEvidence -Evidence $evidence
+                    $finding = $result.Findings | Where-Object { $_.Code -eq 'EVIDENCE_CONFLICT' }
+
+                    $result.Resolved[$field].Source     | Should -Be ([EvidenceSource]::DiscoveryJson)
+                    $result.Resolved[$field].Value      | Should -Be 'x86'
+                    $result.Resolved[$field].Confidence | Should -Be ([ConfidenceLevel]::Low)
+                    $finding.Field                      | Should -Be $field
+                    $finding.Severity                   | Should -Be ([FindingSeverity]::Warning)
+                    $result.Conflicts                   | Should -Contain $field
+                    $evidence[0].Confidence             | Should -Be ([ConfidenceLevel]::High)
+                    $evidence[1].Confidence             | Should -Be ([ConfidenceLevel]::Medium)
+                }
+            }
+
+            It 'downgrades the precedence winner on a High/High architecture conflict' {
+                foreach ($field in @('InstallerArchitecture', 'ApplicationArchitecture')) {
+                    $evidence = @(
+                        [EvidenceRecord]::new($field, 'x64', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High)
+                        [EvidenceRecord]::new($field, 'x86', [EvidenceSource]::DiscoveryJson, [ConfidenceLevel]::High)
+                    )
+
+                    $result = Merge-InstallerEvidence -Evidence $evidence
+
+                    $result.Resolved[$field].Source      | Should -Be ([EvidenceSource]::DiscoveryJson)
+                    $result.Resolved[$field].Confidence | Should -Be ([ConfidenceLevel]::Medium)
+                    $result.Findings.Field              | Should -Contain $field
+                    $evidence[0].Confidence             | Should -Be ([ConfidenceLevel]::High)
+                    $evidence[1].Confidence             | Should -Be ([ConfidenceLevel]::High)
+                }
+            }
+
+            It 'does not report a conflict when architecture values agree' {
+                foreach ($field in @('InstallerArchitecture', 'ApplicationArchitecture')) {
+                    $evidence = @(
+                        [EvidenceRecord]::new($field, 'x64', [EvidenceSource]::MsiDatabase, [ConfidenceLevel]::High)
+                        [EvidenceRecord]::new($field, 'x64', [EvidenceSource]::DiscoveryJson, [ConfidenceLevel]::High)
+                    )
+
+                    $result = Merge-InstallerEvidence -Evidence $evidence
+
+                    $result.Findings  | Should -BeNullOrEmpty
+                    $result.Conflicts  | Should -Not -Contain $field
+                    $result.Resolved[$field].Confidence | Should -Be ([ConfidenceLevel]::High)
+                }
+            }
+        }
+
         Context 'What is NOT a conflict' {
 
             It 'treats agreement between two high-confidence sources as corroboration' {
