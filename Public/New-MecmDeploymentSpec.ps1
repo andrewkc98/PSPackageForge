@@ -74,6 +74,19 @@
         [Nullable[int]] $EstimatedRuntimeMinutes
     )
 
+    # Validate operator inputs before touching the manifest or evaluating ShouldProcess so
+    # invalid requests cannot create parent directories or otherwise write output.
+    if ($null -ne $MaxRuntimeMinutes -and [int] $MaxRuntimeMinutes -le 0) {
+        throw 'MaxRuntimeMinutes must be a positive integer.'
+    }
+    if ($null -ne $EstimatedRuntimeMinutes -and [int] $EstimatedRuntimeMinutes -le 0) {
+        throw 'EstimatedRuntimeMinutes must be a positive integer.'
+    }
+    $validationMaxRuntimeMinutes = if ($null -eq $MaxRuntimeMinutes) { 120 } else { [int] $MaxRuntimeMinutes }
+    if ($null -ne $EstimatedRuntimeMinutes -and [int] $EstimatedRuntimeMinutes -gt $validationMaxRuntimeMinutes) {
+        throw 'EstimatedRuntimeMinutes cannot exceed MaxRuntimeMinutes.'
+    }
+
     $resolvedManifestPath = (Resolve-Path -LiteralPath $ManifestPath -ErrorAction Stop).ProviderPath
     $manifest = Get-Content -LiteralPath $resolvedManifestPath -Raw | ConvertFrom-Json
 
