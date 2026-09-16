@@ -64,7 +64,7 @@ InModuleScope PSPackageForge {
             $offset = [BitConverter]::ToInt32($bytes, 0x3C)
             $bytes[$offset + 4] = 0xFF; $bytes[$offset + 5] = 0xFF
             $path = Join-Path $TestDrive 'unknown-machine.exe'; [IO.File]::WriteAllBytes($path, $bytes)
-            (Get-ExeRecord (Get-ExeEvidence -Path $path) Architecture) | Should -BeNullOrEmpty
+            (Get-ExeRecord (Get-ExeEvidence -Path $path) InstallerArchitecture) | Should -BeNullOrEmpty
         }
     }
 }

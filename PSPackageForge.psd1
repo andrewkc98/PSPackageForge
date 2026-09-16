@@ -1,6 +1,6 @@
 ﻿@{
     RootModule           = 'PSPackageForge.psm1'
-    ModuleVersion        = '0.1.0'
+    ModuleVersion        = '0.2.0'
     GUID                 = '28b493a7-3b39-4fa0-a7d9-e4eb65a02c69'
 
     Author               = 'Andrew Tucker'
@@ -44,9 +44,10 @@
         # Pinned toolchain versions. Recorded in every PackageManifest.json so a generated
         # package can always be traced back to the exact renderer that produced it.
         PSPackageForge = @{
-            ManifestSchemaVersion  = '1.0'
-            DiscoverySchemaVersion = '1.0'
-            RequiredPSADTVersion   = '4.0.6'
+            ManifestSchemaVersion      = '2.0'
+            DiscoverySchemaVersion     = '2.0'
+            PackageReceiptSchemaVersion = '1.0'
+            RequiredPSADTVersion       = '4.0.6'
         }
     }
 }

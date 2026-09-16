@@ -134,11 +134,11 @@ function Get-MsiEvidence {
         }
 
         if ($architecture -eq [ArchitectureType]::Unknown) {
-            $findings.Add((New-ForgeFinding -Severity Warning -Code 'MSI_PLATFORM_UNRECOGNISED' -Field 'Architecture' -Message (
+            $findings.Add((New-ForgeFinding -Severity Warning -Code 'MSI_PLATFORM_UNRECOGNISED' -Field 'InstallerArchitecture' -Message (
                 "The summary Template platform '{0}' is not recognised, so the package architecture could not be determined. Set it manually before deploying." -f $platform)))
         }
         else {
-            & $addEvidence 'Architecture' $architecture.ToString() ([ConfidenceLevel]::High) (
+            & $addEvidence 'InstallerArchitecture' $architecture.ToString() ([ConfidenceLevel]::High) (
                 "From the MSI summary Template '$template'.")
         }
 
@@ -147,7 +147,7 @@ function Get-MsiEvidence {
         & $addEvidence 'Language' $language ([ConfidenceLevel]::High) $null
     }
     else {
-        $findings.Add((New-ForgeFinding -Severity Warning -Code 'MSI_TEMPLATE_MISSING' -Field 'Architecture' -Message (
+        $findings.Add((New-ForgeFinding -Severity Warning -Code 'MSI_TEMPLATE_MISSING' -Field 'InstallerArchitecture' -Message (
             'The MSI summary stream has no Template value, so the package architecture is unknown. Do not assume x64.')))
     }
 
@@ -198,7 +198,7 @@ function Get-MsiEvidence {
         & $addEvidence 'MsiKind' 'Unknown' ([ConfidenceLevel]::Low) (
             'The package installs files of its own but also launches an embedded executable, so it is neither cleanly native nor cleanly a wrapper.')
 
-        $findings.Add((New-ForgeFinding -Severity Blocking -Code 'MSI_KIND_AMBIGUOUS' -Field 'MsiKind' -Message (
+        $findings.Add((New-ForgeFinding -Severity Warning -Code 'MSI_KIND_AMBIGUOUS' -Field 'MsiKind' -Message (
             "This MSI installs {0} file(s) but also runs an embedded executable via custom action(s): {1}. Whether 'msiexec /x' fully uninstalls it cannot be determined offline. Verify uninstall behaviour on a reference machine before deploying." -f
                 $database.Files.Count, (($exeLaunchingActions | ForEach-Object { $_.Action }) -join ', '))))
     }

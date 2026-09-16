@@ -7,8 +7,13 @@
     business logic: providers live in Private/Providers, resolution in Private/Resolution,
     and rendering in Private/Rendering.
 
-    The central design property (plan §2): the tool must never emit a confident wrong
-    answer. Three rules follow, and they are why the types look the way they do.
+    The central design property: this tool is a preview scaffolder (0.2.0, initial
+    development) and it reports provenance rather than guaranteeing a deployment. A correct
+    answer names where each value was measured and states the known limitations around it --
+    evidence provenance, active critical blockers, and that unmet blockers fail the self-check
+    and suppress runnable output instead of emitting a guess. It does not promise the produced
+    package will install cleanly on any given machine. Three rules follow, and they are why the
+    types look the way they do.
 
       1. Facts and decisions are different things.  InstallerInfo answers "what is this
          file?".  PackageSpec answers "how should we deploy it?".  Nothing crosses over.
@@ -460,7 +465,11 @@ class InstallerInfo {
     [InstallerFramework]   $Framework
     [InstallerFramework[]] $FrameworkCandidates
 
-    [ArchitectureType] $Architecture
+    # Schema 2 exposes two separate subjects: what the container bitness reports about
+    # itself (InstallerArchitecture) and the bitness of the substance it actually installs
+    # (ApplicationArchitecture). Legacy schema collapsed these into one field.
+    [ArchitectureType] $InstallerArchitecture
+    [ArchitectureType] $ApplicationArchitecture
 
     # Product metadata -- raw, never normalised here (plan §7.3)
     [string] $ProductName
@@ -486,7 +495,8 @@ class InstallerInfo {
         $this.MsiKind              = [MsiKind]::Unknown
         $this.Framework            = [InstallerFramework]::Unknown
         $this.FrameworkCandidates  = @()
-        $this.Architecture         = [ArchitectureType]::Unknown
+        $this.InstallerArchitecture  = [ArchitectureType]::Unknown
+        $this.ApplicationArchitecture = [ArchitectureType]::Unknown
         $this.ProductCodePresent   = $false
         $this.SupportsMsiUninstall = $false
         $this.Evidence             = @()
@@ -526,7 +536,8 @@ class InstallerInfo {
             MsiKind              = $this.MsiKind.ToString()
             Framework            = $this.Framework.ToString()
             FrameworkCandidates  = @($this.FrameworkCandidates | ForEach-Object { $_.ToString() })
-            Architecture         = $this.Architecture.ToString()
+            InstallerArchitecture = $this.InstallerArchitecture.ToString()
+            ApplicationArchitecture = $this.ApplicationArchitecture.ToString()
             ProductName          = $this.ProductName
             Manufacturer         = $this.Manufacturer
             ProductVersionRaw    = $this.ProductVersionRaw
@@ -643,8 +654,9 @@ $script:ModuleRoot = $PSScriptRoot
 $script:ForgeManifestData        = Import-PowerShellDataFile -Path (Join-Path $PSScriptRoot 'PSPackageForge.psd1')
 $script:GeneratorVersion         = $script:ForgeManifestData.ModuleVersion
 $script:ManifestSchemaVersion    = $script:ForgeManifestData.PrivateData.PSPackageForge.ManifestSchemaVersion
-$script:DiscoverySchemaVersion   = $script:ForgeManifestData.PrivateData.PSPackageForge.DiscoverySchemaVersion
-$script:RequiredPSADTVersion     = $script:ForgeManifestData.PrivateData.PSPackageForge.RequiredPSADTVersion
+$script:DiscoverySchemaVersion     = $script:ForgeManifestData.PrivateData.PSPackageForge.DiscoverySchemaVersion
+$script:PackageReceiptSchemaVersion = $script:ForgeManifestData.PrivateData.PSPackageForge.PackageReceiptSchemaVersion
+$script:RequiredPSADTVersion       = $script:ForgeManifestData.PrivateData.PSPackageForge.RequiredPSADTVersion
 
 $script:ConfigRoot    = Join-Path $PSScriptRoot 'Config' # Holds known-quirks.psd1 (build-order step 9).
 $script:TemplateRoot  = Join-Path $PSScriptRoot 'Templates'

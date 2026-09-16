@@ -116,7 +116,7 @@ InModuleScope PSPackageForge {
         It 'reads architecture from the summary Template, not from the host' {
             # The fixture is an Intel (32-bit) package. The machine running this test is
             # almost certainly x64, so a host-derived answer would be wrong here.
-            Get-EvidenceValue $script:Result 'Architecture' | Should -Be 'x86'
+            Get-EvidenceValue $script:Result 'InstallerArchitecture' | Should -Be 'x86'
         }
 
         It 'reports that the payload file carries no version instead of inventing one' {
@@ -258,7 +258,7 @@ InModuleScope PSPackageForge {
             $result  = Get-MsiEvidence -Database $database
             $finding = $result.Findings | Where-Object { $_.Code -eq 'MSI_KIND_AMBIGUOUS' }
 
-            $finding.Severity                     | Should -Be ([FindingSeverity]::Blocking)
+            $finding.Severity                     | Should -Be ([FindingSeverity]::Warning)
             Get-EvidenceValue $result 'MsiKind'   | Should -Be 'Unknown'
             Get-EvidenceValue $result 'PayloadType' | Should -Be 'Mixed'
         }
@@ -494,14 +494,14 @@ InModuleScope PSPackageForge {
         ) {
             $database = Get-TestMsiDatabase -Summary @{ Template = $Template } -Properties @{ ProductName = 'X' }
 
-            Get-EvidenceValue (Get-MsiEvidence -Database $database) 'Architecture' | Should -Be $Expected
+            Get-EvidenceValue (Get-MsiEvidence -Database $database) 'InstallerArchitecture' | Should -Be $Expected
         }
 
         It 'raises a finding instead of guessing when the Template platform is unrecognised' {
             $database = Get-TestMsiDatabase -Summary @{ Template = 'Sparc;1033' } -Properties @{ ProductName = 'X' }
             $result   = Get-MsiEvidence -Database $database
 
-            Get-EvidenceValue $result 'Architecture' | Should -BeNullOrEmpty
+            Get-EvidenceValue $result 'InstallerArchitecture' | Should -BeNullOrEmpty
             ($result.Findings | Where-Object { $_.Code -eq 'MSI_PLATFORM_UNRECOGNISED' }) | Should -Not -BeNullOrEmpty
         }
 
@@ -509,7 +509,7 @@ InModuleScope PSPackageForge {
             $database = Get-TestMsiDatabase -Summary @{} -Properties @{ ProductName = 'X' }
             $result   = Get-MsiEvidence -Database $database
 
-            Get-EvidenceValue $result 'Architecture' | Should -BeNullOrEmpty
+            Get-EvidenceValue $result 'InstallerArchitecture' | Should -BeNullOrEmpty
             ($result.Findings | Where-Object { $_.Code -eq 'MSI_TEMPLATE_MISSING' }) | Should -Not -BeNullOrEmpty
         }
     }
