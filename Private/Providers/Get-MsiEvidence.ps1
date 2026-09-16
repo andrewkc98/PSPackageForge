@@ -267,7 +267,7 @@ function Get-MsiEvidence {
             $component = $componentsById[$primary.Component]
 
             if ($component) {
-                $resolution = Resolve-MsiInstallPath -Database $database -DirectoryId $component.Directory -ComponentCondition $component.Condition -Architecture $architecture
+                $resolution = Resolve-MsiInstallPath -Database $database -DirectoryId $component.Directory -ComponentCondition $component.Condition -InstallerArchitecture $architecture
 
                 foreach ($finding in $resolution.Findings) { $findings.Add($finding) }
 

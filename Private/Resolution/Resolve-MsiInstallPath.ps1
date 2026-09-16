@@ -25,7 +25,7 @@
     SystemFolder is the opposite case: unlike ProgramFilesFolder, it genuinely depends on
     package bitness (SysWOW64 for a 32-bit package, System32 for a 64-bit one), so the
     table entry below is only a default. Resolve-MsiInstallPath rewrites it at root-token
-    resolution time using the caller-supplied -Architecture, rather than this table
+    resolution time using the caller-supplied -InstallerArchitecture, rather than this table
     encoding a single answer that is wrong half the time.
 
     UserScope marks roots that live in a user profile. A component landing there is strong
@@ -38,7 +38,7 @@ $script:MsiStandardDirectory = @{
     'CommonFilesFolder'     = @{ Environment = '%CommonProgramFiles(x86)%'; UserScope = $false; Note = 'Like ProgramFilesFolder, always the x86 location on 64-bit Windows regardless of package bitness -- correctly NOT bitness-conditional.' }
     'CommonFiles64Folder'   = @{ Environment = '%CommonProgramFiles%';     UserScope = $false; Note = $null }
     'WindowsFolder'         = @{ Environment = '%SystemRoot%';             UserScope = $false; Note = $null }
-    'SystemFolder'          = @{ Environment = '%SystemRoot%\SysWOW64';    UserScope = $false; Note = 'Default only. SysWOW64 for a 32-bit package; System32 for a 64-bit package -- rewritten by Resolve-MsiInstallPath based on -Architecture, see above.' }
+    'SystemFolder'          = @{ Environment = '%SystemRoot%\SysWOW64';    UserScope = $false; Note = 'Default only. SysWOW64 for a 32-bit package; System32 for a 64-bit package -- rewritten by Resolve-MsiInstallPath based on -InstallerArchitecture, see above.' }
     'System64Folder'        = @{ Environment = '%SystemRoot%\System32';    UserScope = $false; Note = $null }
     'CommonAppDataFolder'   = @{ Environment = '%ProgramData%';            UserScope = $false; Note = $null }
     'AppDataFolder'         = @{ Environment = '%APPDATA%';                UserScope = $true;  Note = $null }
@@ -138,7 +138,7 @@ function Resolve-MsiInstallPath {
         # bitness (plan §8.1). Unknown is the honest default when the caller could not
         # determine it either -- see the Unknown/Neutral branch below.
         [Parameter()]
-        [ArchitectureType] $Architecture = [ArchitectureType]::Unknown
+        [ArchitectureType] $InstallerArchitecture = [ArchitectureType]::Unknown
     )
 
     $findings   = [System.Collections.Generic.List[Finding]]::new()
@@ -229,7 +229,7 @@ function Resolve-MsiInstallPath {
             # The table entry is only a default (SysWOW64); Windows Installer actually
             # resolves SystemFolder by package bitness, so this is decided per-call rather
             # than by mutating the shared table.
-            switch ($Architecture) {
+            switch ($InstallerArchitecture) {
                 ([ArchitectureType]::x64)   { $environmentRoot = '%SystemRoot%\System32' }
                 ([ArchitectureType]::Arm64) { $environmentRoot = '%SystemRoot%\System32' }
                 ([ArchitectureType]::x86)   { $environmentRoot = '%SystemRoot%\SysWOW64' }

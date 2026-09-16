@@ -189,7 +189,13 @@
             if ($detection.ContainerType -eq [ContainerType]::Msi) { [MsiKind]::Unknown } else { [MsiKind]::NotApplicable })
         $info.Framework            = Get-ForgeEnumValue -Value (& $getValue 'Framework')     -Type ([InstallerFramework]) -Default $(
             if ($info.MsiKind -eq [MsiKind]::Native) { [InstallerFramework]::MsiNative } else { [InstallerFramework]::Unknown })
-        $info.Architecture         = Get-ForgeEnumValue -Value (& $getValue 'Architecture')  -Type ([ArchitectureType]) -Default ([ArchitectureType]::Unknown)
+        # Architecture evidence has two subjects in schema 2. InstallerArchitecture is
+        # about the supplied container; ApplicationArchitecture is only populated when a
+        # provider or explicit operator evidence identifies the installed application.
+        # In particular, a PE bootstrapper's machine type must never become an application
+        # architecture guess.
+        $info.InstallerArchitecture  = Get-ForgeEnumValue -Value (& $getValue 'InstallerArchitecture')  -Type ([ArchitectureType]) -Default ([ArchitectureType]::Unknown)
+        $info.ApplicationArchitecture = Get-ForgeEnumValue -Value (& $getValue 'ApplicationArchitecture') -Type ([ArchitectureType]) -Default ([ArchitectureType]::Unknown)
 
         $info.ProductName          = & $getValue 'ProductName'
         $info.Manufacturer         = & $getValue 'Manufacturer'

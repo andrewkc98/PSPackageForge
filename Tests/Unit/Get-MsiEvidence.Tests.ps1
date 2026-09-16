@@ -408,7 +408,7 @@ InModuleScope PSPackageForge {
                 [PSCustomObject] @{ Directory = 'APPDIR'; Parent = 'SystemFolder'; DefaultDir = 'App' }
             )
 
-            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR' -Architecture ([ArchitectureType]::x64)
+            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR' -InstallerArchitecture ([ArchitectureType]::x64)
 
             $result.EnvironmentPath | Should -Be '%SystemRoot%\System32\App'
             $result.Confidence      | Should -Be ([ConfidenceLevel]::High)
@@ -420,7 +420,7 @@ InModuleScope PSPackageForge {
                 [PSCustomObject] @{ Directory = 'APPDIR'; Parent = 'SystemFolder'; DefaultDir = 'App' }
             )
 
-            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR' -Architecture ([ArchitectureType]::x86)
+            $result = Resolve-MsiInstallPath -Database $database -DirectoryId 'APPDIR' -InstallerArchitecture ([ArchitectureType]::x86)
 
             $result.EnvironmentPath | Should -Be '%SystemRoot%\SysWOW64\App'
             $result.Confidence      | Should -Be ([ConfidenceLevel]::High)

@@ -92,3 +92,48 @@ Describe 'Get-InstallerInfo public boundary' `
             Should -Not -Throw
     }
 }
+
+Describe 'Get-InstallerInfo public EXE architecture boundary' {
+
+    BeforeAll {
+        $script:ModuleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $script:ManifestPath = Join-Path $script:ModuleRoot 'PSPackageForge.psd1'
+        $script:ExeFixturePath = Join-Path $script:ModuleRoot 'Tests\Fixtures\framework-stubs\wix-burn.exe'
+        Import-Module $script:ManifestPath -Force
+    }
+
+    It 'resolves bootstrapper architecture without inferring application architecture' {
+        $result = Get-InstallerInfo -Path $script:ExeFixturePath
+
+        $result.ContainerType          | Should -Be 'Exe'
+        $result.InstallerArchitecture  | Should -Be 'x64'
+        $result.ApplicationArchitecture | Should -Be 'Unknown'
+        $result.GetResolvedEvidence('InstallerArchitecture').Value | Should -Be 'x64'
+        $result.GetResolvedEvidence('ApplicationArchitecture') | Should -BeNullOrEmpty
+    }
+
+    It 'uses explicit application-subject evidence without changing installer architecture' {
+        $applicationEvidence = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new(
+                'ApplicationArchitecture',
+                'x86',
+                [EvidenceSource]::UserOverride,
+                [ConfidenceLevel]::High,
+                'Explicit application payload architecture.')
+        }
+
+        $result = Get-InstallerInfo -Path $script:ExeFixturePath -AdditionalEvidence $applicationEvidence
+
+        $result.InstallerArchitecture   | Should -Be 'x64'
+        $result.ApplicationArchitecture | Should -Be 'x86'
+        $result.GetResolvedEvidence('ApplicationArchitecture').Source | Should -Be 'UserOverride'
+    }
+
+    It 'serializes schema 2 architecture subjects without a legacy Architecture field' {
+        $dict = (Get-InstallerInfo -Path $script:ExeFixturePath).ToOrderedDictionary()
+
+        $dict.Keys | Should -Contain 'InstallerArchitecture'
+        $dict.Keys | Should -Contain 'ApplicationArchitecture'
+        $dict.Keys | Should -Not -Contain 'Architecture'
+    }
+}
