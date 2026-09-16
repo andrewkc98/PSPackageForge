@@ -10,6 +10,15 @@ InModuleScope PSPackageForge {
 
     Describe 'ConvertTo-DetectionScript' {
 
+        BeforeAll {
+            $script:DetectionShell = if ($PSVersionTable.PSEdition -eq 'Desktop') {
+                Get-Command powershell.exe -ErrorAction SilentlyContinue
+            }
+            else {
+                Get-Command pwsh -ErrorAction SilentlyContinue
+            }
+        }
+
         It 'returns exit 0 with non-empty output when a file exists' `
             -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             $target = Join-Path $TestDrive 'present.bin'
@@ -119,6 +128,229 @@ InModuleScope PSPackageForge {
             # The bug this fixes was comparing the arbitrary FileVersion string resource
             # directly; that comparison must be gone from the generated script entirely.
             $content | Should -Not -Match 'VersionInfo\.FileVersion\s*-eq'
+        }
+
+        It 'renders wildcard file rules as deterministic any-match probes with terminating errors' {
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = 'C:\Program Files\App'
+            $rule.FileName = '*.bin'
+            $rule.Operator = [DetectionOperator]::Exists
+            $rule.UsesWildcardPath = $true
+
+            $content = ConvertTo-DetectionScript $rule
+
+            $content | Should -Match 'Get-ChildItem -Path \$target -File -ErrorAction Stop'
+            $content | Should -Match 'foreach \(\$candidate in \$candidates\)'
+            $content | Should -Not -Match 'Select-Object -First 1'
+            $content | Should -Match "CategoryInfo\.Category -eq 'ObjectNotFound'"
+            $content | Should -Match '# A metadata failure is definitive'
+        }
+
+        It 'executes a wildcard Exists rule against every matching candidate on portable PowerShell' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'side-by-side'
+            New-Item -ItemType Directory -Path $target | Out-Null
+            Set-Content -LiteralPath (Join-Path $target 'a-8.bin') -Value 'old'
+            Set-Content -LiteralPath (Join-Path $target 'z-9.bin') -Value 'new'
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $target
+            $rule.FileName = '*.bin'
+            $rule.Operator = [DetectionOperator]::Exists
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-wildcard.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'a-8\.bin|z-9\.bin'
+        }
+
+        It 'matches the later alphabetic candidate by binary version for Exact rules' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'exact-versions'
+            New-Item -ItemType Directory -Path $target | Out-Null
+            Add-Type -TypeDefinition 'using System.Reflection; [assembly: AssemblyFileVersion("8.0.0.0")] public class ExactVersionEight {}' -OutputAssembly (Join-Path $target 'a-8.dll') -OutputType Library
+            Add-Type -TypeDefinition 'using System.Reflection; [assembly: AssemblyFileVersion("9.0.0.0")] public class ExactVersionNine {}' -OutputAssembly (Join-Path $target 'z-9.dll') -OutputType Library
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $target
+            $rule.FileName = '*.dll'
+            $rule.Operator = [DetectionOperator]::Exact
+            $rule.Value = '9.0.0.0'
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-exact-any-match.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'z-9\.dll'
+        }
+
+        It 'matches the later alphabetic candidate by binary version for GreaterOrEqual rules' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'ge-versions'
+            New-Item -ItemType Directory -Path $target | Out-Null
+            Add-Type -TypeDefinition 'using System.Reflection; [assembly: AssemblyFileVersion("8.0.0.0")] public class GreaterVersionEight {}' -OutputAssembly (Join-Path $target 'a-8.dll') -OutputType Library
+            Add-Type -TypeDefinition 'using System.Reflection; [assembly: AssemblyFileVersion("9.0.0.0")] public class GreaterVersionNine {}' -OutputAssembly (Join-Path $target 'z-9.dll') -OutputType Library
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $target
+            $rule.FileName = '*.dll'
+            $rule.Operator = [DetectionOperator]::GreaterOrEqual
+            $rule.Value = '8.5.0.0'
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-ge-any-match.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'z-9\.dll'
+        }
+
+        It 'fails immediately on a bad alphabetic candidate before a later matching candidate' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'bad-first'
+            New-Item -ItemType Directory -Path $target | Out-Null
+            Set-Content -LiteralPath (Join-Path $target 'a-bad.dll') -Value 'not a binary'
+            Add-Type -TypeDefinition 'using System.Reflection; [assembly: AssemblyFileVersion("9.0.0.0")] public class GoodAfterBad {}' -OutputAssembly (Join-Path $target 'z-good.dll') -OutputType Library
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $target
+            $rule.FileName = '*.dll'
+            $rule.Operator = [DetectionOperator]::Exact
+            $rule.Value = '9.0.0.0'
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-bad-first.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1)
+            $LASTEXITCODE | Should -Be 2
+            $output | Should -Match 'Detection failed'
+        }
+
+        It 'returns after a satisfying candidate before a later versionless candidate' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'good-first'
+            New-Item -ItemType Directory -Path $target | Out-Null
+            Add-Type -TypeDefinition 'using System.Reflection; [assembly: AssemblyFileVersion("9.0.0.0")] public class GoodBeforeBad {}' -OutputAssembly (Join-Path $target 'a-good.dll') -OutputType Library
+            Set-Content -LiteralPath (Join-Path $target 'z-bad.dll') -Value 'not a binary'
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $target
+            $rule.FileName = '*.dll'
+            $rule.Operator = [DetectionOperator]::Exact
+            $rule.Value = '9.0.0.0'
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-good-first.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'a-good\.dll'
+        }
+
+        It 'returns exit 2 and stderr for a terminating access probe failure' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $TestDrive
+            $rule.FileName = '*.bin'
+            $rule.Operator = [DetectionOperator]::Exists
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-access-shim.ps1'
+            $errorPath = Join-Path $TestDrive 'detect-access-shim.err'
+            $shim = @'
+function Get-ChildItem { throw [System.UnauthorizedAccessException]::new("access denied") }
+'@
+            Set-Content -LiteralPath $scriptPath -Value ($shim + [Environment]::NewLine + (ConvertTo-DetectionScript $rule)) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2> $errorPath)
+            $LASTEXITCODE | Should -Be 2
+            $output | Should -BeNullOrEmpty
+            (Get-Content -LiteralPath $errorPath -Raw) | Should -Match 'Detection failed'
+        }
+
+        It 'returns exit 0 and empty output for a wildcard with zero matches on portable PowerShell' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $TestDrive
+            $rule.FileName = 'no-such-*.bin'
+            $rule.Operator = [DetectionOperator]::Exists
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-no-wildcard-match.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -BeNullOrEmpty
+        }
+
+        It 'returns exit 2 with stderr for a versionless candidate on portable PowerShell' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'versionless.bin'
+            Set-Content -LiteralPath $target -Value 'fixture'
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = $TestDrive
+            $rule.FileName = 'versionless.bin'
+            $rule.Operator = [DetectionOperator]::GreaterOrEqual
+            $rule.Value = '1.0.0.0'
+            $scriptPath = Join-Path $TestDrive 'detect-versionless-portable.ps1'
+            $errorPath = Join-Path $TestDrive 'detect-versionless-portable.err'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2> $errorPath)
+            $LASTEXITCODE | Should -Be 2
+            $output | Should -BeNullOrEmpty
+            (Get-Content -LiteralPath $errorPath -Raw) | Should -Match 'Detection failed'
         }
 
         It 'detects an Exact file-version rule from the binary version even when the FileVersion string resource differs (H1 regression)' `
