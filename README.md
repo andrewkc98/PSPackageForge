@@ -40,7 +40,7 @@ Review and Scaffold:
 If discovery returns multiple matches, select the intended match with -Match
 
 Example:
-`psforge scaffold C:\Installers\CarbideMotion-667.exe -Discovery C:\Installers\CarbideMotion.discovery.json -Match CarbideMotion-6.6.7 -Output C:\Installers\CarbideMotion-Scaffold`
+`psforge scaffold C:\Installers\CarbideMotion-667.exe -Discovery C:\Installers\CarbideMotion.discovery.json -Match CarbideMotion-667 -Output C:\Installers\CarbideMotion-Scaffold`
 
 Review ...\Output\APPLICATION\PackageDocument.md, resolve any missing information, and use to deploy on MECM. Use ...\Output\APPLICATION\Detect-Application for Detection Settings.
 
