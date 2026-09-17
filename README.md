@@ -46,7 +46,7 @@ Example:
 Review ...\Output\APPLICATION\PackageDocument.md, resolve any missing information, and use to deploy on MECM. Use ...\Output\APPLICATION\Detect-Application for Detection Settings.
 
 Optional for Intune - Pack the application to .intunewin:
-`psforgepack C:\Installers\APPLICATION-Scaffold`
+`psforge pack C:\Installers\APPLICATION-Scaffold`
 
 PSAppDeployToolkit must be available locally. You can also specify tools explicitly:
 `psforge pack C:\Installers\APPLICATION-Scaffold -PSADTModulePath C:\Tools\PSAppDeployToolkit\VERSION\PSAppDeployTookit.psd1 - IntuneWinAppUtilPath C:\Tools\IntuneWinAppUtil.exe`
