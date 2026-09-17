@@ -23,7 +23,6 @@ Give it an installer and it builds a reviewable packaging bundle containing:
 
 Download/Extract the repository.
 Open Powershell, set the execution policy for that session (if required), and import the module:
-
 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 Import-Module C:\Path\To\PSPackageForge\PSPackageForge.psd1`
 
@@ -35,13 +34,13 @@ Discover the installed information:
 Example:
 `psforge discover 'Carbide Motion*' -Output C:\Installers\CarbideMotion.discovery.json`
 
-If discovery returns multiple matches, select the intended match with -Match
-
 Review and Scaffold:
 `psforge scaffold C:\Installers\APPLICATION.exe -Discovery C:\Installers\APPLICATION.discovery.json -Output C:\Installers\APPLICATION-Scaffold`
 
+If discovery returns multiple matches, select the intended match with -Match
+
 Example:
-`psforge scaffold C:\Installers\CarbideMotion-667.exe -Discovery C:\Installers\CarbideMotion.discovery.json -Output C:\Installers\CarbideMotion-Scaffold`
+`psforge scaffold C:\Installers\CarbideMotion-667.exe -Discovery C:\Installers\CarbideMotion.discovery.json -Match CarbideMotion-6.6.7 -Output C:\Installers\CarbideMotion-Scaffold`
 
 Review ...\Output\APPLICATION\PackageDocument.md, resolve any missing information, and use to deploy on MECM. Use ...\Output\APPLICATION\Detect-Application for Detection Settings.
 
