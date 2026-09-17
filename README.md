@@ -19,6 +19,40 @@ Give it an installer and it builds a reviewable packaging bundle containing:
 > **Status: v1 functional scope implemented.** See [Future roadmap](#future-roadmap-remaining-work) for remaining work.
 
 ---
+## Quick Start Guide
+
+Download/Extract the repository.
+Open Powershell, set the execution policy for that session (if required), and import the module:
+
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+Import-Module C:\Path\To\PSPackageForge\PSPackageForge.psd1`
+
+Place the .exe or .msi of the file you want to deploy in any base (C:\Installers used as example).
+Install the application on the machine.
+Discover the installed information:
+`psforge discover 'APPLICATION*' -Output C:\Installers\APPLICATION.discovery.json`
+
+Example:
+`psforge discover 'Carbide Motion*' -Output C:\Installers\CarbideMotion.discovery.json`
+
+If discovery returns multiple matches, select the intended match with -Match
+
+Review and Scaffold:
+`psforge scaffold C:\Installers\APPLICATION.exe -Discovery C:\Installers\APPLICATION.discovery.json -Output C:\Installers\APPLICATION-Scaffold`
+
+Example:
+`psforge scaffold C:\Installers\CarbideMotion-667.exe -Discovery C:\Installers\CarbideMotion.discovery.json -Output C:\Installers\CarbideMotion-Scaffold`
+
+Review ...\Output\APPLICATION\PackageDocument.md, resolve any missing information, and use to deploy on MECM. Use ...\Output\APPLICATION\Detect-Application for Detection Settings.
+
+Optional for Intune - Pack the application to .intunewin:
+`psforgepack C:\Installers\APPLICATION-Scaffold`
+
+PSAppDeployToolkit must be available locally. You can also specify tools explicitly:
+`psforge pack C:\Installers\APPLICATION-Scaffold -PSADTModulePath C:\Tools\PSAppDeployToolkit\VERSION\PSAppDeployTookit.psd1 - IntuneWinAppUtilPath C:\Tools\IntuneWinAppUtil.exe`
+
+
+---
 
 ## Why this exists
 
