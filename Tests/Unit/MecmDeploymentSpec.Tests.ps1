@@ -166,7 +166,7 @@ InModuleScope PSPackageForge {
                 # parses that ISO-8601-shaped string into a [DateTime], and round-tripping a DateTime
                 # back through Should -Be's own formatting would make this assertion depend on which
                 # PowerShell edition is running it rather than on what ConvertTo-MecmDeploymentSpec did.
-                $script:Spec.SourceManifest.SchemaVersion   | Should -Be '1.0'
+                $script:Spec.SourceManifest.SchemaVersion   | Should -Be '2.0'
                 $script:Spec.SourceManifest.GeneratedAtUtc  | Should -Be '2026-08-20T13:07:01.3761677Z'
                 $script:Spec.SourceManifest.InstallerSHA256 | Should -Be $script:SevenZipManifest.Installer.SHA256
             }

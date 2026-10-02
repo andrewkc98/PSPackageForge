@@ -88,6 +88,9 @@ function Get-PSADTCommandRenderData {
         $arguments = @($rawArguments | ForEach-Object { "$_" })
     }
 
+    $workingDirectory = Get-DocumentOptionalProperty -InputObject $Command -Name 'WorkingDirectory'
+    if ($null -ne $workingDirectory) { $workingDirectory = "$workingDirectory" }
+
     $rawExpectedExitCodes = Get-DocumentOptionalProperty -InputObject $Command -Name 'ExpectedExitCodes'
     $expectedExitCodes = @($rawExpectedExitCodes | ForEach-Object { [int] $_ })
     if ($expectedExitCodes.Count -eq 0) {
@@ -125,6 +128,7 @@ function Get-PSADTCommandRenderData {
         PSTypeName    = 'PSPackageForge.PSADTCommandRenderData'
         Executable    = "$executable"
         ArgumentList  = [string[]] $arguments
+        WorkingDirectory = $workingDirectory
         SuccessCodes  = [int[]] @($successCodes)
         RebootCodes   = [int[]] @($rebootCodes)
     }
@@ -145,24 +149,18 @@ function ConvertTo-PSADTProcessStatement {
     )
 
     $parts = [System.Collections.Generic.List[string]]::new()
-    $parts.Add('Start-ADTProcess')
-    $parts.Add('-FilePath {0}' -f (ConvertTo-PSADTPowerShellStringLiteral -Value $CommandData.Executable))
-    if (@($CommandData.ArgumentList).Count -gt 0) {
-        $parts.Add('-ArgumentList {0}' -f (ConvertTo-PSADTStringArrayLiteral -Value $CommandData.ArgumentList))
-    }
+    $parts.Add('Invoke-PSPFStartADTProcess')
+    $parts.Add('-Executable {0}' -f (ConvertTo-PSADTPowerShellStringLiteral -Value $CommandData.Executable))
+    $parts.Add('-ArgumentList {0}' -f (ConvertTo-PSADTStringArrayLiteral -Value $CommandData.ArgumentList))
+    $parts.Add('-WorkingDirectory {0}' -f (ConvertTo-PSADTPowerShellStringLiteral -Value $CommandData.WorkingDirectory))
 
-    # Start-ADTProcess searches Files for a relative executable, while the working directory
-    # makes relative payload arguments (for example, `msiexec /i app.msi`) resolve there too.
-    $parts.Add('-WorkingDirectory $adtSession.DirFiles')
+    $successCodes = @($CommandData.SuccessCodes)
+    if ($successCodes.Count -eq 0) { $successCodes = @(-2147483648) }
+    $rebootCodes = @($CommandData.RebootCodes)
+    if ($rebootCodes.Count -eq 0) { $rebootCodes = @(-2147483648) }
 
-    if (@($CommandData.SuccessCodes).Count -gt 0) {
-        $parts.Add('-SuccessExitCodes {0}' -f (ConvertTo-PSADTIntegerArrayLiteral -Value $CommandData.SuccessCodes))
-    }
-    if (@($CommandData.RebootCodes).Count -gt 0) {
-        # PSADT 4.0.6 validates this parameter with ValidateNotNullOrEmpty, so a legitimate
-        # empty manifest set must omit the parameter and fall back to the session-level array.
-        $parts.Add('-RebootExitCodes {0}' -f (ConvertTo-PSADTIntegerArrayLiteral -Value $CommandData.RebootCodes))
-    }
+    $parts.Add('-SuccessExitCodes {0}' -f (ConvertTo-PSADTIntegerArrayLiteral -Value $successCodes))
+    $parts.Add('-RebootExitCodes {0}' -f (ConvertTo-PSADTIntegerArrayLiteral -Value $rebootCodes))
     return ($parts -join ' ')
 }
 
@@ -201,8 +199,17 @@ function ConvertTo-PSADTRenderPlan {
         -Command (Get-DocumentOptionalProperty -InputObject $packageSpec -Name 'UninstallCommand') `
         -ReturnCodeMap $returnCodeMap
 
-    $architecture = "$(Get-DocumentOptionalProperty -InputObject $installer -Name 'Architecture')"
-    if ($architecture -notin @('x86', 'x64', 'Arm64')) { $architecture = '' }
+    $architecture = "$(Get-DocumentOptionalProperty -InputObject $installer -Name 'ApplicationArchitecture')"
+    $architectureEvidence = @(
+        Get-DocumentOptionalProperty -InputObject $installer -Name 'ResolvedEvidence' |
+            Where-Object { "$(Get-DocumentOptionalProperty -InputObject $_ -Name 'Field')" -eq 'ApplicationArchitecture' }
+    )
+    $architectureConfidence = if ($architectureEvidence.Count -gt 0) {
+        "$(Get-DocumentOptionalProperty -InputObject $architectureEvidence[0] -Name 'Confidence')"
+    }
+    else { '' }
+    if ($architecture -notin @('x86', 'x64', 'Arm64', 'Unknown') -or
+        $architecture -eq 'Unknown' -or $architectureConfidence -eq 'Low') { $architecture = '' }
 
     $successCodes = [int[]] @(@($installData.SuccessCodes) + @($uninstallData.SuccessCodes) | Sort-Object -Unique)
     $rebootCodes  = [int[]] @(@($installData.RebootCodes) + @($uninstallData.RebootCodes) | Sort-Object -Unique)
@@ -273,6 +280,91 @@ function Add-PSADTTemplateTask {
 }
 
 
+function Add-PSPFProcessHelper {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [string] $Content
+    )
+
+    $markerPattern = '(?m)^(?<Indent>[ \t]*)function Install-ADTDeployment[ \t]*\r?$'
+    $markerMatches = [regex]::Matches($Content, $markerPattern)
+    if ($markerMatches.Count -ne 1) {
+        throw [System.IO.InvalidDataException]::new(
+            "The PSADT 4.0.6 frontend did not contain exactly one 'function Install-ADTDeployment' marker. The pinned template contract may have changed.")
+    }
+
+    $helper = @'
+function Invoke-PSPFStartADTProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Executable,
+        [Parameter()] [AllowEmptyCollection()] [AllowNull()] [string[]] $ArgumentList,
+        [Parameter()] [AllowEmptyString()] [AllowNull()] [string] $WorkingDirectory,
+        [Parameter()] [int[]] $SuccessExitCodes,
+        [Parameter()] [int[]] $RebootExitCodes
+    )
+
+    $expand = {
+        param([AllowNull()] [string] $Value)
+        if ($null -eq $Value) { return $null }
+        return [Environment]::ExpandEnvironmentVariables($Value)
+    }
+    $quote = {
+        param([AllowEmptyString()] [string] $Value)
+        if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') { return $Value }
+        $builder = [Text.StringBuilder]::new()
+        $backslashes = 0
+        [void] $builder.Append('"')
+        foreach ($character in $Value.ToCharArray()) {
+            if ($character -eq [char] 92) { $backslashes++; continue }
+            if ($character -eq [char] 34) {
+                if ($backslashes -gt 0) { [void] $builder.Append([char] 92, ($backslashes * 2)) }
+                [void] $builder.Append([char] 92)
+                [void] $builder.Append([char] 34)
+                $backslashes = 0
+                continue
+            }
+            if ($backslashes -gt 0) { [void] $builder.Append([char] 92, $backslashes); $backslashes = 0 }
+            [void] $builder.Append($character)
+        }
+        if ($backslashes -gt 0) { [void] $builder.Append([char] 92, ($backslashes * 2)) }
+        [void] $builder.Append('"')
+        return $builder.ToString()
+    }
+
+    $expandedExecutable = & $expand $Executable
+    $expandedArguments = @($ArgumentList | ForEach-Object { & $expand $_ })
+    $argumentString = (@($expandedArguments | ForEach-Object { & $quote $_ }) -join ' ')
+    $expandedWorkingDirectory = & $expand $WorkingDirectory
+    if ([string]::IsNullOrWhiteSpace($expandedWorkingDirectory)) {
+        $resolvedWorkingDirectory = $adtSession.DirFiles
+    }
+    elseif ($expandedWorkingDirectory -match '^(?:[A-Za-z]:[\\/]|\\\\)') {
+        $resolvedWorkingDirectory = $expandedWorkingDirectory
+    }
+    else {
+        $resolvedWorkingDirectory = Join-Path -Path $adtSession.DirFiles -ChildPath $expandedWorkingDirectory
+    }
+
+    $invoke = @{
+        FilePath = $expandedExecutable
+        ArgumentList = $argumentString
+        WorkingDirectory = $resolvedWorkingDirectory
+    }
+    if ($null -ne $SuccessExitCodes -and @($SuccessExitCodes).Count -gt 0) { $invoke.SuccessExitCodes = $SuccessExitCodes }
+    if ($null -ne $RebootExitCodes -and @($RebootExitCodes).Count -gt 0) { $invoke.RebootExitCodes = $RebootExitCodes }
+    Start-ADTProcess @invoke
+}
+'@
+    $newLine = if ($Content.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $helper = $helper -replace "`r?`n", $newLine
+    $match = $markerMatches[0]
+    return $Content.Insert($match.Index, $helper + $newLine + $newLine)
+}
+
+
 function ConvertTo-PSADTTemplateContent {
     <#
         .SYNOPSIS
@@ -306,5 +398,6 @@ function ConvertTo-PSADTTemplateContent {
         -Marker '## <Perform Installation tasks here>' -Statement $RenderPlan.InstallStatement
     $content = Add-PSADTTemplateTask -Content $content `
         -Marker '## <Perform Uninstallation tasks here>' -Statement $RenderPlan.UninstallStatement
+    $content = Add-PSPFProcessHelper -Content $content
     return $content
 }

@@ -49,16 +49,36 @@ function Uninstall-ADTDeployment
             $packagePath = Join-Path -Path $Destination -ChildPath $Name
             [void] (New-Item -ItemType Directory -Path $packagePath -Force)
             [void] (New-Item -ItemType Directory -Path (Join-Path $packagePath 'Files') -Force)
+            [void] (New-Item -ItemType Directory -Path (Join-Path $packagePath 'Config') -Force)
+            [void] (New-Item -ItemType Directory -Path (Join-Path $packagePath 'PSAppDeployToolkit') -Force)
             Set-Content -LiteralPath (Join-Path $packagePath 'Invoke-AppDeployToolkit.ps1') `
                 -Value $script:NativeFrontend -Encoding UTF8
-            if ($PassThru) { Get-Item -LiteralPath $packagePath }
+            $launcher = [byte[]]::new(68)
+            $launcher[0] = 0x4D; $launcher[1] = 0x5A; $launcher[0x3C] = 64
+            $launcher[64] = 0x50; $launcher[65] = 0x45
+            [System.IO.File]::WriteAllBytes((Join-Path $packagePath 'Invoke-AppDeployToolkit.exe'), $launcher)
+            Set-Content -LiteralPath (Join-Path $packagePath 'Config/config.psd1') -Encoding UTF8 -Value $script:TemplateConfigContent
+            Set-Content -LiteralPath (Join-Path $packagePath 'PSAppDeployToolkit/PSAppDeployToolkit.psd1') -Encoding UTF8 -Value "@{ ModuleVersion = '$($script:TemplateToolkitVersion)'; RootModule = 'PSAppDeployToolkit.psm1' }"
+            Set-Content -LiteralPath (Join-Path $packagePath 'PSAppDeployToolkit/PSAppDeployToolkit.psm1') -Encoding UTF8 -Value 'function Test-Toolkit {}'
+            if ($PassThru) { [pscustomobject] @{ FullName = $packagePath } }
         }
+
+        $script:TemplateConfigContent = @'
+@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = 'old' }; MSI = @{ LogPathNoAdminRights = 'old' } }
+'@
+        $script:TemplateToolkitVersion = '4.0.6'
+        $script:ValidFakeTemplateCommand = $script:FakeTemplateCommand
     }
 
     Describe 'PSADT pure renderer' {
 
         It 'maps the committed manifest into the pinned v4 frontend without parsing command strings' {
-            $plan = ConvertTo-PSADTRenderPlan -Manifest $script:SevenZipManifest
+            $manifest = $script:SevenZipManifest | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+            $manifest.Installer | Add-Member -MemberType NoteProperty -Name ApplicationArchitecture -Value 'x64' -Force
+            $manifest.Installer | Add-Member -MemberType NoteProperty -Name ResolvedEvidence -Value @(
+                [pscustomobject]@{ Field = 'ApplicationArchitecture'; Value = 'x64'; Confidence = 'High' }
+            ) -Force
+            $plan = ConvertTo-PSADTRenderPlan -Manifest $manifest
             $content = ConvertTo-PSADTTemplateContent `
                 -TemplateContent $script:NativeFrontend -RenderPlan $plan
 
@@ -68,14 +88,55 @@ function Uninstall-ADTDeployment
             $content | Should -Match "AppArch = 'x64'"
             $content | Should -Match 'AppSuccessExitCodes = @\(0, 1707\)'
             $content | Should -Match 'AppRebootExitCodes = @\(1641, 3010\)'
-            $content | Should -Match "Start-ADTProcess -FilePath 'msiexec.exe' -ArgumentList @\('/i', '7z2602-x64.msi', '/qn'\)"
-            $content | Should -Match '-WorkingDirectory \$adtSession\.DirFiles'
-            $content | Should -Match "Start-ADTProcess -FilePath 'msiexec.exe' -ArgumentList @\('/x', '\{23170F69-40C1-2702-2602-000001000000\}', '/qn'\)"
+            $content | Should -Match "Invoke-PSPFStartADTProcess -Executable 'msiexec.exe'"
+            $content | Should -Match "-ArgumentList @\('/i'"
+            ([regex]::Matches($content, "Invoke-PSPFStartADTProcess -Executable 'msiexec.exe'")).Count | Should -Be 2
+            $content | Should -Match 'function Invoke-PSPFStartADTProcess'
+            ([regex]::Matches($content, 'function Invoke-PSPFStartADTProcess')).Count | Should -Be 1
+            $content | Should -Match '\[Environment\]::ExpandEnvironmentVariables'
+        }
+
+        It 'renders application architecture only for high-confidence evidence' {
+            foreach ($case in @(
+                @{ Architecture = 'x64'; Confidence = 'High'; Expected = "AppArch = 'x64'" },
+                @{ Architecture = 'x64'; Confidence = 'Medium'; Expected = "AppArch = 'x64'" },
+                @{ Architecture = 'x64'; Confidence = 'Low';  Expected = "AppArch = ''" },
+                @{ Architecture = 'Unknown'; Confidence = 'High'; Expected = "AppArch = ''" }
+            )) {
+                $manifest = $script:SevenZipManifest | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+                $manifest.Installer | Add-Member -MemberType NoteProperty -Name ApplicationArchitecture -Value $case.Architecture -Force
+                $manifest.Installer | Add-Member -MemberType NoteProperty -Name ResolvedEvidence -Value @(
+                    [pscustomobject]@{ Field = 'ApplicationArchitecture'; Value = $case.Architecture; Confidence = $case.Confidence }
+                ) -Force
+                (ConvertTo-PSADTTemplateContent -TemplateContent $script:NativeFrontend -RenderPlan (ConvertTo-PSADTRenderPlan -Manifest $manifest)) |
+                    Should -Match $case.Expected
+            }
         }
 
         It 'single-quotes installer-controlled values as data' {
             ConvertTo-PSADTPowerShellStringLiteral -Value "O'Brien's App" |
                 Should -Be "'O''Brien''s App'"
+        }
+
+        It 'keeps empty operation classifications separate from session defaults' {
+            $returnCodeMap = @(
+                [pscustomobject] @{ Code = 0; Classification = 'Success' },
+                [pscustomobject] @{ Code = 3010; Classification = 'SuccessRebootRequired' }
+            )
+            $installData = Get-PSADTCommandRenderData -Operation Install `
+                -Command ([pscustomobject] @{ Executable = 'install.exe'; ExpectedExitCodes = @(0, 3010) }) `
+                -ReturnCodeMap $returnCodeMap
+            $uninstallData = Get-PSADTCommandRenderData -Operation Uninstall `
+                -Command ([pscustomobject] @{ Executable = 'uninstall.exe'; ExpectedExitCodes = @(0) }) `
+                -ReturnCodeMap $returnCodeMap
+
+            $installStatement = ConvertTo-PSADTProcessStatement -CommandData $installData
+            $uninstallStatement = ConvertTo-PSADTProcessStatement -CommandData $uninstallData
+
+            $installStatement | Should -Match '-SuccessExitCodes @\(0\)'
+            $installStatement | Should -Match '-RebootExitCodes @\(3010\)'
+            $uninstallStatement | Should -Match '-SuccessExitCodes @\(0\)'
+            $uninstallStatement | Should -Match '-RebootExitCodes @\(-2147483648\)'
         }
 
         It 'fails closed when the pinned frontend marker contract is absent' {
@@ -92,6 +153,14 @@ function Uninstall-ADTDeployment
 
             { ConvertTo-PSADTRenderPlan -Manifest $manifest } |
                 Should -Throw "*1618*classified as 'Retry'*"
+        }
+
+        It 'fails closed when the deployment helper marker is duplicated' {
+            $plan = ConvertTo-PSADTRenderPlan -Manifest $script:SevenZipManifest
+            $badTemplate = $script:NativeFrontend -replace 'function Install-ADTDeployment', "function Install-ADTDeployment`nfunction Install-ADTDeployment"
+
+            { ConvertTo-PSADTTemplateContent -TemplateContent $badTemplate -RenderPlan $plan } |
+                Should -Throw '*function Install-ADTDeployment*'
         }
     }
 
@@ -198,46 +267,30 @@ function Uninstall-ADTDeployment
     Describe 'New-PSADTPackage' {
 
         BeforeEach {
+            $script:FakeTemplateCommand = $script:ValidFakeTemplateCommand
+            $script:TemplateConfigContent = @'
+@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = 'old' }; MSI = @{ LogPathNoAdminRights = 'old' } }
+'@
+            $script:TemplateToolkitVersion = '4.0.6'
             $script:ScaffoldPath = Join-Path $TestDrive 'scaffold'
+            if (Test-Path -LiteralPath $script:ScaffoldPath) {
+                Remove-Item -LiteralPath $script:ScaffoldPath -Recurse -Force
+            }
             [void] (New-Item -ItemType Directory -Path $script:ScaffoldPath -Force)
             $script:StagedInstallerPath = Join-Path $script:ScaffoldPath 'setup.exe'
             Set-Content -LiteralPath $script:StagedInstallerPath -Value 'synthetic installer bytes' -NoNewline
             $hash = (Get-FileHash -LiteralPath $script:StagedInstallerPath -Algorithm SHA256).Hash
 
-            $manifestObject = [ordered] @{
-                SchemaVersion = '1.0'
-                Generator = [ordered] @{
-                    Name = 'PSPackageForge'
-                    Version = '0.1.0'
-                    RequiredPSADTVersion = '4.0.6'
-                }
-                Installer = [ordered] @{
-                    Path = 'setup.exe'
-                    FileName = 'setup.exe'
-                    SHA256 = $hash
-                    ProductName = "O'Brien App"
-                    Manufacturer = "O'Brien Software"
-                    ProductVersionRaw = '1.2.3'
-                    Architecture = 'x64'
-                }
-                PackageSpec = [ordered] @{
-                    InstallCommand = [ordered] @{
-                        Executable = 'setup.exe'
-                        ArgumentList = @('/S', "OWNER=O'Brien")
-                        ExpectedExitCodes = @(0, 3010)
-                    }
-                    UninstallCommand = [ordered] @{
-                        Executable = 'C:\Program Files\OBrien\uninstall.exe'
-                        ArgumentList = @('/S')
-                        ExpectedExitCodes = @(0)
-                    }
-                    ReturnCodeMap = @(
-                        [ordered] @{ Code = 0; Meaning = 'Success'; Classification = 'Success' },
-                        [ordered] @{ Code = 3010; Meaning = 'Reboot required'; Classification = 'SuccessRebootRequired' }
-                    )
-                }
-                Readiness = 'ReviewRequired'
-            }
+            $manifestObject = $script:SevenZipManifest | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+            $manifestObject.Installer.Path = 'setup.exe'
+            $manifestObject.Installer.FileName = 'setup.exe'
+            $manifestObject.Installer.SHA256 = $hash
+            $manifestObject.Installer.ProductName = "O'Brien App"
+            $manifestObject.Installer.Manufacturer = "O'Brien Software"
+            $manifestObject.Installer.ProductVersionRaw = '1.2.3'
+            $manifestObject.PackageSpec.InstallCommand.Executable = 'setup.exe'
+            $manifestObject.PackageSpec.InstallCommand.ArgumentList = @('/S', "OWNER=O'Brien")
+            $manifestObject.PackageSpec.UninstallCommand.Executable = 'C:\Program Files\OBrien\uninstall.exe'
             $script:ManifestPath = Join-Path $script:ScaffoldPath 'PackageManifest.json'
             $manifestObject | ConvertTo-Json -Depth 20 |
                 Set-Content -LiteralPath $script:ManifestPath -Encoding UTF8
@@ -258,11 +311,16 @@ function Uninstall-ADTDeployment
             $content = Get-Content -LiteralPath $result.DeploymentScriptPath -Raw
             $content | Should -Match "AppName = 'O''Brien App'"
             $content | Should -Match "-ArgumentList @\('/S', 'OWNER=O''Brien'\)"
-            $installLine = @($content -split '\r?\n' | Where-Object { $_ -like "*FilePath 'setup.exe'*" })
-            $uninstallLine = @($content -split '\r?\n' | Where-Object { $_ -like "*FilePath 'C:\Program Files\OBrien\uninstall.exe'*" })
-            $installLine[0] | Should -Match '-RebootExitCodes @\(3010\)'
-            $uninstallLine[0] | Should -Not -Match '-RebootExitCodes'
+            $installLine = @($content -split '\r?\n' | Where-Object { $_ -like "*Invoke-PSPFStartADTProcess -Executable 'setup.exe'*" })
+            $uninstallLine = @($content -split '\r?\n' | Where-Object { $_ -like "*Invoke-PSPFStartADTProcess -Executable 'C:\Program Files\OBrien\uninstall.exe'*" })
+            $installLine.Count | Should -Be 1
+            $uninstallLine.Count | Should -Be 1
+            $installLine[0] | Should -Match '-SuccessExitCodes @\(0, 1707\)'
+            $installLine[0] | Should -Match '-RebootExitCodes @\(3010, 1641\)'
+            $uninstallLine[0] | Should -Match '-SuccessExitCodes @\(0, 1707\)'
+            $uninstallLine[0] | Should -Match '-RebootExitCodes @\(3010, 1641\)'
             $uninstallLine[0] | Should -Not -Match '@\(\)'
+            $content | Should -Not -Match 'App(?:Success|Reboot)ExitCodes = @\([^)]*-2147483648'
             Should -Invoke Resolve-PSADTTemplateCommand -Times 1 -Exactly -ParameterFilter {
                 $RequiredVersion -eq [Version] '4.0.6' -and [string]::IsNullOrWhiteSpace($ModulePath)
             }
@@ -296,7 +354,7 @@ function Uninstall-ADTDeployment
                 Set-Content -LiteralPath $script:ManifestPath -Encoding UTF8
 
             { New-PSADTPackage -ManifestPath $script:ManifestPath } |
-                Should -Throw "*readiness is 'NeedsInput'*"
+                Should -Throw "*readiness is 'NeedsInput'*ReviewRequired*"
             Should -Invoke Resolve-PSADTTemplateCommand -Times 0 -Exactly
         }
 
@@ -315,8 +373,86 @@ function Uninstall-ADTDeployment
                 Set-Content -LiteralPath $script:ManifestPath -Encoding UTF8
 
             { New-PSADTPackage -ManifestPath $script:ManifestPath } |
-                Should -Throw '*same staged file directly beside PackageManifest.json*'
+                Should -Throw '*must exactly match one direct child filename*'
             Should -Invoke Resolve-PSADTTemplateCommand -Times 0 -Exactly
+        }
+
+        It 'removes its staging directory when frontend rendering fails' {
+            Mock ConvertTo-PSADTTemplateContent { throw 'frontend stage failed' }
+            { New-PSADTPackage -ManifestPath $script:ManifestPath } | Should -Throw '*frontend stage failed*'
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+            (Join-Path $script:ScaffoldPath 'Package') | Should -Not -Exist
+        }
+
+        It 'removes a partial staging directory when the template throws after creating it' {
+            $script:FakeTemplateCommand = {
+                param([string] $Destination, [string] $Name, [int] $Version, [switch] $PassThru)
+                $script:TemplateInvocation = @{ Version = $Version; PassThru = $PassThru }
+                [void] (New-Item -ItemType Directory -Path (Join-Path $Destination $Name) -Force)
+                throw 'template failed after creation'
+            }
+            { New-PSADTPackage -ManifestPath $script:ManifestPath } | Should -Throw '*template failed after creation*'
+            $script:TemplateInvocation.Version | Should -Be 4
+            $script:TemplateInvocation.PassThru | Should -BeTrue
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+            (Join-Path $script:ScaffoldPath 'Package') | Should -Not -Exist
+        }
+
+        It 'removes its staging directory when context configuration is invalid' {
+            $script:TemplateConfigContent = '@{ Toolkit = @{ RequireAdmin = $false }; MSI = @{} }'
+            { New-PSADTPackage -ManifestPath $script:ManifestPath } | Should -Throw '*missing*LogPathNoAdminRights*'
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+            (Join-Path $script:ScaffoldPath 'Package') | Should -Not -Exist
+        }
+
+        It 'rejects a bundled toolkit with the wrong version and cleans staging' {
+            $script:TemplateToolkitVersion = '4.0.7'
+            { New-PSADTPackage -ManifestPath $script:ManifestPath } | Should -Throw '*does not match the required version*'
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+            (Join-Path $script:ScaffoldPath 'Package') | Should -Not -Exist
+        }
+
+        It 'cleans staging when installer copy fails' {
+            Mock Copy-Item { throw 'payload stage failed' }
+            { New-PSADTPackage -ManifestPath $script:ManifestPath } | Should -Throw '*payload stage failed*'
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+            (Join-Path $script:ScaffoldPath 'Package') | Should -Not -Exist
+        }
+
+        It 'cleans staging when receipt creation fails' {
+            Mock Write-PackageForgeReceipt { throw 'receipt stage failed' }
+            { New-PSADTPackage -ManifestPath $script:ManifestPath } | Should -Throw '*receipt stage failed*'
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+            (Join-Path $script:ScaffoldPath 'Package') | Should -Not -Exist
+        }
+
+        It 'cleans staging when receipt-backed package validation fails' {
+            Mock Test-PackageForgePackage { throw 'package validation failed' }
+            { New-PSADTPackage -ManifestPath $script:ManifestPath } | Should -Throw '*package validation failed*'
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+            (Join-Path $script:ScaffoldPath 'Package') | Should -Not -Exist
+        }
+
+        It 'replaces a verified empty destination by atomic publication' {
+            $outputPath = Join-Path $script:ScaffoldPath 'empty-package'
+            [void] (New-Item -ItemType Directory -Path $outputPath)
+            $result = New-PSADTPackage -ManifestPath $script:ManifestPath -OutputPath $outputPath
+            $result.PackagePath | Should -Be $outputPath
+            (Join-Path $outputPath 'PSPackageForgeReceipt.json') | Should -Exist
+            (Get-ChildItem -LiteralPath $script:ScaffoldPath -Directory -Force | Where-Object Name -Like '.psforge-*') | Should -BeNullOrEmpty
+        }
+
+        It 'patches the generated config for the manifest selected user context' {
+            $manifest = Get-Content -LiteralPath $script:ManifestPath -Raw | ConvertFrom-Json
+            $manifest.PackageSpec.SelectedContext = 'User'
+            $manifest | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $script:ManifestPath -Encoding UTF8
+
+            $result = New-PSADTPackage -ManifestPath $script:ManifestPath
+            $configPath = Join-Path $result.PackagePath 'Config/config.psd1'
+            $config = Import-PowerShellDataFile -LiteralPath $configPath
+            $config.Toolkit.RequireAdmin | Should -BeFalse
+            $config.Toolkit.LogPathNoAdminRights | Should -Be '$envLocalAppData\Logs\Software'
+            $config.MSI.LogPathNoAdminRights | Should -Be '$envLocalAppData\Logs\Software'
         }
     }
 }

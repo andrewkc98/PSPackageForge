@@ -16,7 +16,10 @@ Give it an installer and it builds a reviewable packaging bundle containing:
 - a machine-readable package manifest
 - package documentation with a verification checklist
 
-> **Status: v1 functional scope implemented.** See [Future roadmap](#future-roadmap-remaining-work) for remaining work.
+> **Status: 0.2.0 preview (initial development).** This release is for operator review and
+> testing; it carries no production-readiness guarantee. The Windows package-runtime and
+> disposable testbench matrix is planned for release verification, and its results will be
+> recorded separately after those commands run.
 
 ---
 
@@ -282,7 +285,7 @@ Four applications are used to exercise different parts of the packaging model.
 | **KiCad** | NSIS, versioned installation paths, and the distinction between installer arguments and MECM installation behaviour. |
 | **Obsidian** | Per-user Squirrel installation, logged-on-user requirements, and per-user registry discovery. |
 
-These are current deterministic regression cases covering the supported v1 paths; they are not a planned implementation sequence.
+These are current deterministic regression cases covering the implemented schema-2 paths; they are not a planned implementation sequence.
 
 Firefox ESR covers wrapper-MSI handling.
 
@@ -294,12 +297,19 @@ KiCad and Obsidian cover EXE packaging where installation location and execution
 
 Operational use targets Windows. PowerShell 7 on Ubuntu verifies portable build and analyzer behaviour plus deterministic tests; it is not an operational target for the package workflows. Live installed-application registry discovery is Windows-only.
 
-Verified PowerShell runtimes:
+Configured CI runtimes:
 
-- Windows PowerShell 5.1
-- PowerShell 7 on Ubuntu (portable build, analyzer, and deterministic-test verification)
+- Windows PowerShell 5.1 on `windows-latest`
+- PowerShell 7 on Ubuntu `ubuntu-latest` (portable checks; Windows-only acceptance skips)
 
-Windows PowerShell 5.1 remains supported because it is still widely used in MECM environments.
+CI pins Pester 5.7.1 and PSScriptAnalyzer 1.25.0 on both runners. The Windows job also saves
+PSAppDeployToolkit 4.0.6 for acceptance coverage. This is the configured matrix, not a claim
+that the 0.2.0 release-verification commands or disposable Windows testbench run have passed.
+Windows PowerShell 5.1 remains a supported runtime for MECM environments.
+
+PSScriptAnalyzer 1.25.0's `ProvideCommentHelp.AnalyzeScript` intermittently crashed on macOS
+PowerShell 7.6.5 and crashed once on Windows before a clean rerun. No root cause has been
+established; the rule remains enabled.
 
 Optional tooling:
 
@@ -432,8 +442,16 @@ Invoke-PackageForge -Action pack -Path ./Output/KiCad-Setup
 Pack uses the exact PSAppDeployToolkit 4.0.6 version recorded by the manifest. The module
 must already be available locally (or be supplied with the advanced
 `-PSADTModulePath` option); PSPackageForge never downloads or upgrades it. A complete
-existing `Package` is reused only after read-only structure and SHA-256 checks. Partial or
-mismatched content is refused and is not deleted or replaced.
+existing `Package` is reused only when its receipt matches the current manifest, pinned
+toolkit, exact file inventory, lengths, and SHA-256 hashes. The receipt detects accidental
+staleness and local edits; it is not a signature against a local operator who can rewrite both
+the package and receipt. Edits to generated package files are unsupported and invalidate
+reuse and Intune packaging. Package generation and Intune output use owned staging directories
+and publish by rename only after validation. A failed run publishes no partial output.
+
+Pack refuses to refresh a nonempty `Package`. To recover from stale or unwanted content, move
+or rename the old `Package` directory out of the scaffold root, or use a new empty scaffold
+and output path, then run pack again.
 
 `IntuneWinAppUtil.exe` is resolved locally from an explicit `-IntuneWinAppUtilPath`, the
 optional repository `Config/settings.psd1` setting, or exactly one match on `PATH`. An
@@ -508,15 +526,29 @@ New-PSADTPackage -ManifestPath ./Output/PackageManifest.json
 ```
 
 The default output is `Package/` beside the manifest. PSPackageForge requires the exact
-PSAppDeployToolkit version recorded in the manifest (`4.0.6` for schema v1), calls its native
+PSAppDeployToolkit version recorded in the manifest (`4.0.6` for schema 2), calls its native
 `New-ADTTemplate`, copies the hash-verified installer into `Package/Files`, and renders the
 manifest's structured payload commands into the PSADT install and uninstall phases. It never
 downloads or silently upgrades PSADT.
 
+At runtime, `%NAME%` tokens in command executables, arguments, and working directories expand
+against the target machine's environment. Arguments are passed as individual child-process
+arguments, preserving spaces, empty values, embedded quotes, and trailing backslashes.
+An explicit working directory is honored after expansion; a relative value resolves under the
+package's `Files` directory, and an omitted value uses that directory. Unknown variables remain
+visible and cause path or process validation to fail.
+
+User-context packages run without elevation and use the executing user's LocalAppData log
+directory (`Logs/Software`); they require a logged-on user and cannot write to protected
+machine locations such as Program Files. System-context packages use the toolkit's normal
+machine context and log configuration. MSI commands request `REBOOT=ReallySuppress`; the
+runtime still reports a mapped reboot-required exit such as 3010 without restarting the host.
+
 MECM deployment specifications invoke this package through the stable
 `Invoke-AppDeployToolkit.exe` entry point; the vendor payload commands remain authoritative
-inside `PackageManifest.json`. For an intentional refresh of an existing package root, use
-this primitive deliberately rather than the safe `psforge pack` reuse path.
+inside `PackageManifest.json`. Generated-package edits are unsupported. Move an existing
+nonempty `Package` out of the scaffold root, or choose a new empty scaffold/output path, before
+packing again.
 
 ---
 
@@ -577,7 +609,7 @@ non-empty `Invoke-AppDeployToolkit.intunewin`; its SHA-256 is returned.
 
 ## Build progress
 
-Current v1 progress:
+Implemented workflow components in the 0.2.0 preview:
 
 - [x] Module skeleton, PSScriptAnalyzer settings, CI on Windows PowerShell 5.1
 - [x] PowerShell 7 implementation and CI verification
@@ -600,7 +632,11 @@ Current v1 progress:
 
 ## Future roadmap (remaining work)
 
-The following items are planned outside the current v1 scope.
+The following items are planned beyond the 0.2.0 preview scope.
+
+### Installed-version confirmation
+
+The current file-existence fallback can accept an older version when it is installed at the same path. Planned version confirmation will use trustworthy installed-version evidence, such as file metadata or reviewed registry evidence, and compare it with the required package version using the selected `Exact` or `GreaterOrEqual` policy. Older versions will be rejected, while missing or unusable version evidence will be flagged for review rather than silently reported as version-verified. This closes the discovery and fallback gap; version comparisons are already supported.
 
 ### Windows Sandbox discovery
 

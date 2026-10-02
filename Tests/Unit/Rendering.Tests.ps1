@@ -108,6 +108,25 @@ InModuleScope PSPackageForge {
             else {
                 Get-Command pwsh -ErrorAction SilentlyContinue
             }
+
+            function Invoke-DetectionScriptProcess {
+                param(
+                    [Parameter(Mandatory = $true)]$Shell,
+                    [Parameter(Mandatory = $true)][string]$ScriptPath,
+                    [Parameter(Mandatory = $true)][string]$OutputPath,
+                    [Parameter(Mandatory = $true)][string]$ErrorPath
+                )
+
+                $process = Start-Process -FilePath $Shell.Source -ArgumentList @(
+                    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $ScriptPath)
+                ) -Wait -PassThru -RedirectStandardOutput $OutputPath -RedirectStandardError $ErrorPath
+
+                [pscustomobject]@{
+                    ExitCode = $process.ExitCode
+                    StdOut   = [System.IO.File]::ReadAllText($OutputPath)
+                    StdErr   = [System.IO.File]::ReadAllText($ErrorPath)
+                }
+            }
         }
 
         It 'returns exit 0 with non-empty output when a file exists' `
@@ -231,7 +250,10 @@ InModuleScope PSPackageForge {
 
             $content = ConvertTo-DetectionScript $rule
 
-            $content | Should -Match 'Get-ChildItem -Path \$target -File -ErrorAction Stop'
+            $content | Should -Match 'Get-ChildItem -LiteralPath \$matchedDirectory -File -Force -ErrorAction Stop'
+            $content | Should -Match 'Get-Item -LiteralPath \$literalDirectory -Force -ErrorAction Stop'
+            $content | Should -Match '\$_.Name -like \$segment'
+            $content | Should -Not -Match 'Get-ChildItem -Path'
             $content | Should -Match 'foreach \(\$candidate in \$candidates\)'
             $content | Should -Not -Match 'Select-Object -First 1'
             $content | Should -Match "CategoryInfo\.Category -eq 'ObjectNotFound'"
@@ -262,6 +284,66 @@ InModuleScope PSPackageForge {
             $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
             $LASTEXITCODE | Should -Be 0
             $output | Should -Match 'a-8\.bin|z-9\.bin'
+        }
+
+        It 'matches a wildcard directory segment and filters filenames from literal directory probes' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'wildcard-directories'
+            $app8 = Join-Path $target 'app-8'
+            $app9 = Join-Path $target 'app-9'
+            New-Item -ItemType Directory -Path $app8, $app9 -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $app8 'target-8.bin') -Value 'eight'
+            Set-Content -LiteralPath (Join-Path $app9 'target-9.bin') -Value 'nine'
+
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = Join-Path $target 'app-*'
+            $rule.FileName = 'target-9*.bin'
+            $rule.Operator = [DetectionOperator]::Exists
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-wildcard-directory.ps1'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'app-9[\\/]target-9\.bin'
+
+            $rule.Path = Join-Path $target 'app-[89]'
+            Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'app-9[\\/]target-9\.bin'
+        }
+
+        It 'treats missing literal and wildcard directory branches as absent' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            foreach ($directory in @(
+                (Join-Path $TestDrive 'no-such-literal-directory'),
+                (Join-Path $TestDrive 'no-such-wildcard-*')
+            )) {
+                $rule = [DetectionSpec]::new()
+                $rule.Kind = [DetectionKind]::File
+                $rule.Path = $directory
+                $rule.FileName = '*.bin'
+                $rule.Operator = [DetectionOperator]::Exists
+                $rule.UsesWildcardPath = $directory.Contains('*')
+                $scriptPath = Join-Path $TestDrive ('detect-missing-directory-{0}.ps1' -f [guid]::NewGuid())
+                Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
+
+                $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath)
+                $LASTEXITCODE | Should -Be 0
+                $output | Should -BeNullOrEmpty
+            }
         }
 
         It 'matches the later alphabetic candidate by binary version for Exact rules' {
@@ -340,9 +422,12 @@ InModuleScope PSPackageForge {
             $scriptPath = Join-Path $TestDrive 'detect-bad-first.ps1'
             Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
 
-            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1)
-            $LASTEXITCODE | Should -Be 2
-            $output | Should -Match 'Detection failed'
+            $outputPath = Join-Path $TestDrive 'detect-bad-first.out'
+            $errorPath = Join-Path $TestDrive 'detect-bad-first.err'
+            $result = Invoke-DetectionScriptProcess -Shell $shell -ScriptPath $scriptPath -OutputPath $outputPath -ErrorPath $errorPath
+            $result.ExitCode | Should -Be 2
+            $result.StdOut | Should -BeNullOrEmpty
+            $result.StdErr | Should -Match 'Detection failed'
         }
 
         It 'returns after a satisfying candidate before a later versionless candidate' {
@@ -392,10 +477,44 @@ function Get-ChildItem { throw [System.UnauthorizedAccessException]::new("access
 '@
             Set-Content -LiteralPath $scriptPath -Value ($shim + [Environment]::NewLine + (ConvertTo-DetectionScript $rule)) -Encoding UTF8
 
-            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2> $errorPath)
-            $LASTEXITCODE | Should -Be 2
-            $output | Should -BeNullOrEmpty
-            (Get-Content -LiteralPath $errorPath -Raw) | Should -Match 'Detection failed'
+            $outputPath = Join-Path $TestDrive 'detect-access-shim.out'
+            $result = Invoke-DetectionScriptProcess -Shell $shell -ScriptPath $scriptPath -OutputPath $outputPath -ErrorPath $errorPath
+            $result.ExitCode | Should -Be 2
+            $result.StdOut | Should -BeNullOrEmpty
+            $result.StdErr | Should -Match 'Detection failed'
+        }
+
+        It 'returns exit 2 when a literal directory probe fails inside a matched wildcard branch' {
+            $shell = $script:DetectionShell
+            if ($null -eq $shell) {
+                Set-ItResult -Skipped -Because 'No supported PowerShell executable is available.'
+                return
+            }
+
+            $target = Join-Path $TestDrive 'wildcard-access'
+            New-Item -ItemType Directory -Path (Join-Path $target 'app-8') -Force | Out-Null
+            $rule = [DetectionSpec]::new()
+            $rule.Kind = [DetectionKind]::File
+            $rule.Path = Join-Path (Join-Path $target 'app-*') 'blocked'
+            $rule.FileName = '*.bin'
+            $rule.Operator = [DetectionOperator]::Exists
+            $rule.UsesWildcardPath = $true
+            $scriptPath = Join-Path $TestDrive 'detect-wildcard-access.ps1'
+            $errorPath = Join-Path $TestDrive 'detect-wildcard-access.err'
+            $shim = @'
+function Get-Item {
+    param([string] $LiteralPath, [switch] $Force)
+    if ($LiteralPath -like '*blocked') { throw [System.UnauthorizedAccessException]::new('access denied') }
+    Microsoft.PowerShell.Management\Get-Item -LiteralPath $LiteralPath -Force -ErrorAction Stop
+}
+'@
+            Set-Content -LiteralPath $scriptPath -Value ($shim + [Environment]::NewLine + (ConvertTo-DetectionScript $rule)) -Encoding UTF8
+
+            $outputPath = Join-Path $TestDrive 'detect-wildcard-access.out'
+            $result = Invoke-DetectionScriptProcess -Shell $shell -ScriptPath $scriptPath -OutputPath $outputPath -ErrorPath $errorPath
+            $result.ExitCode | Should -Be 2
+            $result.StdOut | Should -BeNullOrEmpty
+            $result.StdErr | Should -Match 'Detection failed'
         }
 
         It 'returns exit 0 and empty output for a wildcard with zero matches on portable PowerShell' {
@@ -438,10 +557,11 @@ function Get-ChildItem { throw [System.UnauthorizedAccessException]::new("access
             $errorPath = Join-Path $TestDrive 'detect-versionless-portable.err'
             Set-Content -LiteralPath $scriptPath -Value (ConvertTo-DetectionScript $rule) -Encoding UTF8
 
-            $output = @(& $shell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2> $errorPath)
-            $LASTEXITCODE | Should -Be 2
-            $output | Should -BeNullOrEmpty
-            (Get-Content -LiteralPath $errorPath -Raw) | Should -Match 'Detection failed'
+            $outputPath = Join-Path $TestDrive 'detect-versionless-portable.out'
+            $result = Invoke-DetectionScriptProcess -Shell $shell -ScriptPath $scriptPath -OutputPath $outputPath -ErrorPath $errorPath
+            $result.ExitCode | Should -Be 2
+            $result.StdOut | Should -BeNullOrEmpty
+            $result.StdErr | Should -Match 'Detection failed'
         }
 
         It 'detects an Exact file-version rule from the binary version even when the FileVersion string resource differs (H1 regression)' `

@@ -482,12 +482,16 @@ InModuleScope PSPackageForge {
                 $stagedInstaller = Join-Path -Path $Root -ChildPath $InstallerFileName
                 Set-Content -LiteralPath $stagedInstaller -Value 'synthetic installer bytes' -NoNewline
                 $hash = (Get-FileHash -LiteralPath $stagedInstaller -Algorithm SHA256).Hash
-
                 $manifest = [ordered] @{
-                    SchemaVersion = '1.0'
-                    Generator     = [ordered] @{ Name = 'PSPackageForge'; RequiredPSADTVersion = '4.0.6' }
-                    Installer     = [ordered] @{ Path = $InstallerFileName; FileName = $InstallerFileName; SHA256 = $hash }
-                    Readiness     = $Readiness
+                    SchemaVersion = '2.0'
+                    Generator = [ordered] @{ Name = 'PSPackageForge'; Version = "$script:GeneratorVersion"; RequiredPSADTVersion = '4.0.6' }
+                    Installer = [ordered] @{ Path = $InstallerFileName; FileName = $InstallerFileName; SHA256 = $hash }
+                    PackageSpec = [ordered] @{
+                        InstallCommand = [ordered] @{ Executable = $InstallerFileName; ArgumentList = @('/quiet'); ExpectedExitCodes = @(0) }
+                        UninstallCommand = [ordered] @{ Executable = $InstallerFileName; ArgumentList = @('/uninstall'); ExpectedExitCodes = @(0) }
+                        ReturnCodeMap = @([ordered] @{ Code = 0; Classification = 'Success'; Meaning = 'Success' })
+                    }
+                    Readiness = $Readiness
                 }
                 $manifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $Root 'PackageManifest.json') -Encoding UTF8
                 return [ordered] @{ Root = $Root; InstallerFileName = $InstallerFileName; Hash = $hash }
@@ -497,11 +501,23 @@ InModuleScope PSPackageForge {
                 param([Parameter(Mandatory)][object] $Fixture)
 
                 $packageRoot = Join-Path -Path $Fixture.Root -ChildPath 'Package'
-                [void] (New-Item -ItemType Directory -Path (Join-Path $packageRoot 'Files') -Force)
-                Set-Content -LiteralPath (Join-Path $packageRoot 'Invoke-AppDeployToolkit.exe') -Value 'exe' -NoNewline
-                Set-Content -LiteralPath (Join-Path $packageRoot 'Invoke-AppDeployToolkit.ps1') -Value 'script' -NoNewline
-                Copy-Item -LiteralPath (Join-Path $Fixture.Root $Fixture.InstallerFileName) `
-                    -Destination (Join-Path (Join-Path $packageRoot 'Files') $Fixture.InstallerFileName)
+                foreach ($relative in @('Files', 'Config', 'PSAppDeployToolkit')) {
+                    [void] (New-Item -ItemType Directory -Path (Join-Path $packageRoot $relative) -Force)
+                }
+                $launcher = [byte[]]::new(128)
+                $launcher[0] = 0x4D; $launcher[1] = 0x5A
+                [BitConverter]::GetBytes([int] 64).CopyTo($launcher, 0x3C)
+                $launcher[64] = 0x50; $launcher[65] = 0x45
+                [System.IO.File]::WriteAllBytes((Join-Path $packageRoot 'Invoke-AppDeployToolkit.exe'), $launcher)
+                Set-Content -LiteralPath (Join-Path $packageRoot 'Invoke-AppDeployToolkit.ps1') -Value 'function Install-ADTDeployment { }
+function Uninstall-ADTDeployment { }' -NoNewline
+                Set-Content -LiteralPath (Join-Path $packageRoot 'Config/config.psd1') -Value '@{}' -NoNewline
+                Set-Content -LiteralPath (Join-Path $packageRoot 'PSAppDeployToolkit/PSAppDeployToolkit.psd1') -Value "@{ ModuleVersion = '4.0.6'; RootModule = 'PSAppDeployToolkit.psm1' }" -NoNewline
+                Set-Content -LiteralPath (Join-Path $packageRoot 'PSAppDeployToolkit/PSAppDeployToolkit.psm1') -Value '# fixture toolkit' -NoNewline
+                Copy-Item -LiteralPath (Join-Path $Fixture.Root $Fixture.InstallerFileName) -Destination (Join-Path (Join-Path $packageRoot 'Files') $Fixture.InstallerFileName)
+                $manifestInput = Read-PackageForgeManifest -ManifestPath (Join-Path $Fixture.Root 'PackageManifest.json') -RequireRunnable
+                [void] (Write-PackageForgeReceipt -ManifestInput $manifestInput -PackagePath $packageRoot)
+                return $packageRoot
             }
 
             function Get-PackIntuneBuiltResult {
@@ -656,6 +672,56 @@ InModuleScope PSPackageForge {
             Should -Invoke New-IntuneWinPackage -Times 1 -Exactly
         }
 
+        It 'rejects legacy, wrong-toolkit, stale-manifest, and receipt-tampered reuse before Intune' {
+            Mock New-PSADTPackage { throw 'New-PSADTPackage must not be called for invalid reuse.' }
+            Mock New-IntuneWinPackage { throw 'New-IntuneWinPackage must not be called for invalid reuse.' }
+
+            $legacy = Get-PackFixture -Root (Join-Path $TestDrive 'reuse-schema1')
+            [void] (Get-PackCompletePackage -Fixture $legacy)
+            $legacyManifestPath = Join-Path $legacy.Root 'PackageManifest.json'
+            $legacyManifest = Get-Content -LiteralPath $legacyManifestPath -Raw | ConvertFrom-Json
+            $legacyManifest.SchemaVersion = '1.0'
+            $legacyManifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $legacyManifestPath -Encoding UTF8
+            { Invoke-PackageForge pack $legacy.Root } | Should -Throw "*schema '1.0' is not supported*"
+
+            $wrongToolkit = Get-PackFixture -Root (Join-Path $TestDrive 'reuse-wrong-toolkit')
+            [void] (Get-PackCompletePackage -Fixture $wrongToolkit)
+            $wrongManifestPath = Join-Path $wrongToolkit.Root 'PackageManifest.json'
+            $wrongManifest = Get-Content -LiteralPath $wrongManifestPath -Raw | ConvertFrom-Json
+            $wrongManifest.Generator.RequiredPSADTVersion = '4.0.5'
+            $wrongManifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $wrongManifestPath -Encoding UTF8
+            { Invoke-PackageForge pack $wrongToolkit.Root } | Should -Throw "*exactly '4.0.6' is supported*"
+
+            $stale = Get-PackFixture -Root (Join-Path $TestDrive 'reuse-stale-manifest')
+            [void] (Get-PackCompletePackage -Fixture $stale)
+            $staleManifestPath = Join-Path $stale.Root 'PackageManifest.json'
+            $staleManifest = Get-Content -LiteralPath $staleManifestPath -Raw | ConvertFrom-Json
+            $staleManifest.PackageSpec.InstallCommand.ArgumentList = @('/quiet', '/changed')
+            $staleManifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $staleManifestPath -Encoding UTF8
+            { Invoke-PackageForge pack $stale.Root } | Should -Throw '*receipt source manifest hash or filename is stale*'
+
+            $tampered = Get-PackFixture -Root (Join-Path $TestDrive 'reuse-receipt-tampered')
+            $tamperedPackage = Get-PackCompletePackage -Fixture $tampered
+            Set-Content -LiteralPath (Join-Path $tamperedPackage 'Config/config.psd1') -Value '@{ Changed = $true }' -NoNewline
+            { Invoke-PackageForge pack $tampered.Root } | Should -Throw '*Package file length mismatch*'
+
+            $missingToolkit = Get-PackFixture -Root (Join-Path $TestDrive 'reuse-missing-toolkit')
+            $missingToolkitPackage = Get-PackCompletePackage -Fixture $missingToolkit
+            Remove-Item -LiteralPath (Join-Path $missingToolkitPackage 'PSAppDeployToolkit/PSAppDeployToolkit.psm1') -Force
+            { Invoke-PackageForge pack $missingToolkit.Root } | Should -Throw '*required toolkit root module*'
+
+            $mutatedReceipt = Get-PackFixture -Root (Join-Path $TestDrive 'reuse-receipt-mutated')
+            $mutatedReceiptPackage = Get-PackCompletePackage -Fixture $mutatedReceipt
+            $receiptPath = Join-Path $mutatedReceiptPackage 'PSPackageForgeReceipt.json'
+            $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+            $receipt.Renderer.Version = '9.9.9'
+            $receipt | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $receiptPath -Encoding UTF8
+            { Invoke-PackageForge pack $mutatedReceipt.Root } | Should -Throw '*renderer version must be exactly*'
+
+            Should -Invoke New-PSADTPackage -Times 0 -Exactly
+            Should -Invoke New-IntuneWinPackage -Times 0 -Exactly
+        }
+
         It 'refuses an occupied IntuneWin output and preserves the existing artifact' {
             $fixture = Get-PackFixture -Root (Join-Path $TestDrive 'occupied-intunewin')
             [void] (Get-PackCompletePackage -Fixture $fixture)
@@ -684,7 +750,7 @@ InModuleScope PSPackageForge {
             # Remove one required artifact to make the package partial.
             Remove-Item -LiteralPath (Join-Path (Join-Path $fixture.Root 'Package') 'Invoke-AppDeployToolkit.exe') -Force
 
-            { Invoke-PackageForge pack $fixture.Root } | Should -Throw '*partial or corrupt*'
+            { Invoke-PackageForge pack $fixture.Root } | Should -Throw '*missing required launcher*'
 
             Test-Path -LiteralPath $sentinel | Should -BeTrue
             Get-Content -LiteralPath $sentinel | Should -Be 'do not touch'
@@ -712,7 +778,7 @@ InModuleScope PSPackageForge {
             Mock New-PSADTPackage { throw 'New-PSADTPackage must not be called on reuse.' }
             Mock New-IntuneWinPackage { throw 'New-IntuneWinPackage must not be called.' }
 
-            { Invoke-PackageForge pack $fixture.Root } | Should -Throw '*hash mismatch*'
+            { Invoke-PackageForge pack $fixture.Root } | Should -Throw '*Packaged installer hash does not match*'
             Test-Path -LiteralPath $sentinel | Should -BeTrue
             Get-Content -LiteralPath $sentinel | Should -Be 'do not touch'
             Should -Invoke New-PSADTPackage -Times 0 -Exactly
@@ -737,7 +803,7 @@ InModuleScope PSPackageForge {
                 Mock New-PSADTPackage { throw 'New-PSADTPackage must not be called for invalid reuse metadata.' }
                 Mock New-IntuneWinPackage { throw 'New-IntuneWinPackage must not be called for invalid reuse metadata.' }
 
-                { Invoke-PackageForge pack $fixture.Root } | Should -Throw '*cannot be validated for reuse*'
+                { Invoke-PackageForge pack $fixture.Root } | Should -Throw '*direct child filename*'
                 Test-Path -LiteralPath $sentinel | Should -BeTrue
                 Get-Content -LiteralPath $sentinel -Raw | Should -Be 'do not touch'
                 Should -Invoke New-PSADTPackage -Times 0 -Exactly
@@ -780,27 +846,20 @@ InModuleScope PSPackageForge {
 
         It 'keeps WhatIf read-only on the create branch (WouldCreate)' {
             $fixture = Get-PackFixture -Root (Join-Path $TestDrive 'whatif-create')
-            Mock New-PSADTPackage {
-                param($ManifestPath, $PSADTModulePath, [switch] $WhatIf)
-                $script:PackPsadt = @{ ManifestPath = $ManifestPath; PSADTModulePath = $PSADTModulePath; WhatIf = $WhatIf.IsPresent }
-                [PSCustomObject] @{ PSTypeName = 'PSPackageForge.PSADTPackageResult'; ManifestPath = $ManifestPath }
-            }
+            Mock New-PSADTPackage { throw 'New-PSADTPackage must not be called under WhatIf.' }
             Mock New-IntuneWinPackage { throw 'New-IntuneWinPackage must not be called on the create WhatIf branch.' }
 
             $result = Invoke-PackageForge pack $fixture.Root -PSADTModulePath 'C:\modules\PSADT\PSAppDeployToolkit.psd1' -WhatIf
 
-            $script:PackPsadt.ManifestPath | Should -Be (Join-Path $fixture.Root 'PackageManifest.json')
-            $script:PackPsadt.PSADTModulePath | Should -Be 'C:\modules\PSADT\PSAppDeployToolkit.psd1'
-            $script:PackPsadt.WhatIf | Should -BeTrue
             $result.Status | Should -Be 'WhatIf'
             $result.PSADTDisposition | Should -Be 'WouldCreate'
             $result.OutputPath | Should -Be $fixture.Root
             $result.PackagePath | Should -Be (Join-Path $fixture.Root 'Package')
-            $result.PSADTResult.ManifestPath | Should -Be (Join-Path $fixture.Root 'PackageManifest.json')
+            $result.PSADTResult | Should -BeNullOrEmpty
             $result.IntuneWinResult | Should -BeNullOrEmpty
             $result.IntuneWinPath | Should -BeNullOrEmpty
             $result.SHA256 | Should -BeNullOrEmpty
-            Should -Invoke New-PSADTPackage -Times 1 -Exactly
+            Should -Invoke New-PSADTPackage -Times 0 -Exactly
             Should -Invoke New-IntuneWinPackage -Times 0 -Exactly
         }
 
@@ -872,10 +931,18 @@ InModuleScope PSPackageForge {
 
             $packRoot = Join-Path $TestDrive 'alias-pack'
             $null = New-Item -ItemType Directory -Path (Join-Path $packRoot 'Package') -Force
+            Set-Content -LiteralPath (Join-Path $packRoot 'AliasApp.exe') -Value 'alias installer' -NoNewline
+            $aliasHash = (Get-FileHash -LiteralPath (Join-Path $packRoot 'AliasApp.exe') -Algorithm SHA256).Hash
             $manifest = [ordered]@{
-                SchemaVersion = '1.0'
-                Installer     = [ordered]@{ Path = 'AliasApp.exe'; FileName = 'AliasApp.exe'; SHA256 = ('A' * 64) }
-                Readiness     = 'ReviewRequired'
+                SchemaVersion = '2.0'
+                Generator = [ordered]@{ Name = 'PSPackageForge'; Version = "$script:GeneratorVersion"; RequiredPSADTVersion = '4.0.6' }
+                Installer = [ordered]@{ Path = 'AliasApp.exe'; FileName = 'AliasApp.exe'; SHA256 = $aliasHash }
+                PackageSpec = [ordered]@{
+                    InstallCommand = [ordered]@{ Executable = 'AliasApp.exe'; ArgumentList = @(); ExpectedExitCodes = @(0) }
+                    UninstallCommand = [ordered]@{ Executable = 'AliasApp.exe'; ArgumentList = @(); ExpectedExitCodes = @(0) }
+                    ReturnCodeMap = @([ordered]@{ Code = 0; Classification = 'Success'; Meaning = 'Success' })
+                }
+                Readiness = 'ReviewRequired'
             }
             $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $packRoot 'PackageManifest.json')
 
