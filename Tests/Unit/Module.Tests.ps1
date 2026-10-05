@@ -32,12 +32,15 @@ Describe 'Module manifest' {
         $script:Manifest.CompatiblePSEditions | Should -Contain 'Core'
     }
 
-    It 'pins the contract and toolchain versions the manifest output depends on' {
+    It 'pins the schema-2 contract and toolchain versions the manifest output depends on' {
         $forge = $script:Manifest.PrivateData.PSPackageForge
 
-        $forge.ManifestSchemaVersion  | Should -Not -BeNullOrEmpty
-        $forge.DiscoverySchemaVersion | Should -Not -BeNullOrEmpty
-        $forge.RequiredPSADTVersion   | Should -Not -BeNullOrEmpty
+        # Four authoritative constants: the manifest and discovery graphs moved to schema 2,
+        # package receipts remain schema 1, and the PSADT toolchain pin is unchanged.
+        $forge.ManifestSchemaVersion      | Should -Be '2.0'
+        $forge.DiscoverySchemaVersion     | Should -Be '2.0'
+        $forge.PackageReceiptSchemaVersion | Should -Be '1.0'
+        $forge.RequiredPSADTVersion       | Should -Be '4.0.6'
     }
 
     It 'exports all public commands in the locked v1 scope plus Invoke-PackageForge' {
@@ -266,6 +269,28 @@ Describe 'Type contract' {
             $dict.Readiness       | Should -BeOfType [string]
             $dict.SelectedContext | Should -BeOfType [string]
             $dict.RebootBehavior  | Should -BeOfType [string]
+        }
+    }
+
+    It 'serialises InstallerInfo with exactly the two schema-2 architecture fields' {
+        InModuleScope PSPackageForge {
+            $info = [InstallerInfo]::new()
+            $info.InstallerArchitecture  = [ArchitectureType]::x86
+            $info.ApplicationArchitecture = [ArchitectureType]::x64
+
+            $keys = @($info.ToOrderedDictionary().Keys)
+
+            # Both subjects are present, in order, and stored as the enum type (rendered as
+            # strings on the way out through ToOrderedDictionary).
+            $keys | Should -Contain 'InstallerArchitecture'
+            $keys | Should -Contain 'ApplicationArchitecture'
+            $info.InstallerArchitecture  | Should -BeOfType ([ArchitectureType])
+            $info.ApplicationArchitecture | Should -BeOfType ([ArchitectureType])
+            $info.InstallerArchitecture  | Should -Be 'x86'
+            $info.ApplicationArchitecture | Should -Be 'x64'
+
+            # schema 2 must not emit the legacy single field.
+            $keys | Should -Not -Contain 'Architecture'
         }
     }
 }

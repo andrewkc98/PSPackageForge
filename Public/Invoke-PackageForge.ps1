@@ -295,25 +295,8 @@
             throw "Invoke-PackageForge pack requires PackageManifest.json in the scaffold root. Not found: $manifestPath"
         }
 
-        try {
-            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-        }
-        catch {
-            throw "Invoke-PackageForge pack: PackageManifest.json is not valid JSON: $($_.Exception.Message)"
-        }
-
-        if ("$($manifest.SchemaVersion)" -ne '1.0') {
-            throw "Invoke-PackageForge pack: PackageManifest.json schema '$($manifest.SchemaVersion)' is not supported; expected '1.0'."
-        }
-
-        if ("$($manifest.Readiness)" -eq 'NeedsInput') {
-            throw "Invoke-PackageForge pack: PackageManifest.json readiness is 'NeedsInput'. Resolve the blocking findings, then scaffold again into a new empty root; for an intentional refresh use the advanced New-PSADTPackage primitive."
-        }
-
-        $installer = $manifest.Installer
-        $manifestInstallerPath = "$($installer.Path)"
-        $manifestInstallerFileName = "$($installer.FileName)"
-        $manifestExpectedHash = "$($installer.SHA256)"
+        $manifestInput = Read-PackageForgeManifest -ManifestPath $manifestPath -RequireRunnable
+        $manifest = $manifestInput.Manifest
 
         $packagePath = Join-Path -Path $canonicalRoot -ChildPath 'Package'
         if ((Test-Path -LiteralPath $packagePath) -and -not (Test-Path -LiteralPath $packagePath -PathType Container)) {
@@ -327,68 +310,8 @@
         }
         $packageEmpty = ($packageEntries.Count -eq 0)
 
-        # Read-only reuse check: a Package directory (or a non-empty one) is reusable only
-        # when it is a complete, valid PSAppDeployToolkit package whose installer and
-        # packaged installer both hash to the manifest. This intentionally mirrors the
-        # Intune preflight so the dispatcher can decide Created versus Reused.
-        function Test-PackageForgeReusablePackage {
-            param(
-                [Parameter(Mandatory)] [string] $Root,
-                [Parameter(Mandatory)] [string] $PackagePath,
-                [Parameter(Mandatory)] [string] $InstallerPathText,
-                [Parameter(Mandatory)] [string] $InstallerFileName,
-                [Parameter(Mandatory)] [string] $ExpectedHash
-            )
-
-            $separators = [char[]] @('\', '/')
-            if ([string]::IsNullOrWhiteSpace($InstallerPathText) -or
-                [string]::IsNullOrWhiteSpace($InstallerFileName) -or
-                $InstallerFileName.IndexOfAny($separators) -ge 0 -or
-                $InstallerPathText.IndexOfAny($separators) -ge 0 -or
-                -not [string]::Equals($InstallerPathText, $InstallerFileName, [StringComparison]::OrdinalIgnoreCase) -or
-                [System.IO.Path]::IsPathRooted($InstallerPathText) -or
-                [System.IO.Path]::IsPathRooted($InstallerFileName) -or
-                [string]::IsNullOrWhiteSpace($ExpectedHash)) {
-                throw 'Invoke-PackageForge pack: PackageManifest.json is missing a complete direct-child Installer.Path/Installer.FileName and Installer.SHA256, so the existing Package cannot be validated for reuse. The existing content is refused and will not be deleted or replaced. Scaffold into a new empty root, or use New-PSADTPackage for an intentional refresh.'
-            }
-
-            $stagedPath = Join-Path -Path $Root -ChildPath $InstallerPathText
-            if (-not (Test-Path -LiteralPath $stagedPath -PathType Leaf)) {
-                throw "Invoke-PackageForge pack: the staged installer '$InstallerFileName' was not found beside PackageManifest.json, so the existing Package is not complete and valid. Reuse is refused and the content will not be deleted or replaced. Scaffold into a new empty root, or use New-PSADTPackage for an intentional refresh."
-            }
-            $stagedHash = (Get-FileHash -LiteralPath $stagedPath -Algorithm SHA256).Hash
-            if (-not [string]::Equals($stagedHash, $ExpectedHash, [StringComparison]::OrdinalIgnoreCase)) {
-                throw "Invoke-PackageForge pack: staged installer hash mismatch. Expected $ExpectedHash, got $stagedHash. The existing Package is not complete and valid; reuse is refused and the content will not be deleted or replaced."
-            }
-
-            $setupExe = Join-Path -Path $PackagePath -ChildPath 'Invoke-AppDeployToolkit.exe'
-            if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) {
-                throw "Invoke-PackageForge pack: Package is missing Invoke-AppDeployToolkit.exe, so it is partial or corrupt. Reuse is refused and the content will not be deleted or replaced. Delete the Package directory and scaffold into a new empty root, or use New-PSADTPackage for an intentional refresh."
-            }
-
-            $setupScript = Join-Path -Path $PackagePath -ChildPath 'Invoke-AppDeployToolkit.ps1'
-            if (-not (Test-Path -LiteralPath $setupScript -PathType Leaf)) {
-                throw "Invoke-PackageForge pack: Package is missing Invoke-AppDeployToolkit.ps1, so it is partial or corrupt. Reuse is refused and the content will not be deleted or replaced. Delete the Package directory and scaffold into a new empty root, or use New-PSADTPackage for an intentional refresh."
-            }
-
-            $packagedPath = Join-Path -Path (Join-Path -Path $PackagePath -ChildPath 'Files') -ChildPath $InstallerFileName
-            if (-not (Test-Path -LiteralPath $packagedPath -PathType Leaf)) {
-                throw "Invoke-PackageForge pack: Package is missing the packaged installer '$InstallerFileName' under its Files directory, so it is partial or corrupt. Reuse is refused and the content will not be deleted or replaced. Delete the Package directory and scaffold into a new empty root, or use New-PSADTPackage for an intentional refresh."
-            }
-            $packagedHash = (Get-FileHash -LiteralPath $packagedPath -Algorithm SHA256).Hash
-            if (-not [string]::Equals($packagedHash, $ExpectedHash, [StringComparison]::OrdinalIgnoreCase)) {
-                throw "Invoke-PackageForge pack: packaged installer hash mismatch. Expected $ExpectedHash, got $packagedHash. Reuse is refused and the content will not be deleted or replaced. Delete the Package directory and scaffold into a new empty root, or use New-PSADTPackage for an intentional refresh."
-            }
-        }
-
         if ($WhatIfPreference) {
             if ($packageEmpty) {
-                $psadtWhatIfParams = @{
-                    ManifestPath = $manifestPath
-                    WhatIf       = $true
-                }
-                if ($PSBoundParameters.ContainsKey('PSADTModulePath')) { $psadtWhatIfParams['PSADTModulePath'] = $PSADTModulePath }
-                $psadtPreview = New-PSADTPackage @psadtWhatIfParams
                 return Get-PackageForgeResult `
                     -Action $normalizedAction `
                     -Status 'WhatIf' `
@@ -396,16 +319,10 @@
                     -ManifestPath $manifestPath `
                     -PackagePath $packagePath `
                     -Readiness $manifest.Readiness `
-                    -PSADTResult $psadtPreview `
                     -PSADTDisposition 'WouldCreate'
             }
 
-            Test-PackageForgeReusablePackage `
-                -Root $canonicalRoot `
-                -PackagePath $packagePath `
-                -InstallerPathText $manifestInstallerPath `
-                -InstallerFileName $manifestInstallerFileName `
-                -ExpectedHash $manifestExpectedHash
+            [void] (Test-PackageForgePackage -ManifestInput $manifestInput -PackagePath $packagePath)
 
             $intuneWhatIfParams = @{
                 OutputPath = $canonicalRoot
@@ -434,12 +351,7 @@
             $psadtResult = New-PSADTPackage @psadtParams
         }
         else {
-            Test-PackageForgeReusablePackage `
-                -Root $canonicalRoot `
-                -PackagePath $packagePath `
-                -InstallerPathText $manifestInstallerPath `
-                -InstallerFileName $manifestInstallerFileName `
-                -ExpectedHash $manifestExpectedHash
+            [void] (Test-PackageForgePackage -ManifestInput $manifestInput -PackagePath $packagePath)
             $psadtDisposition = 'Reused'
         }
 

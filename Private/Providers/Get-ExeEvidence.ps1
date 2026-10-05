@@ -10,7 +10,7 @@ function Get-ExeEvidence {
     & $add 'ContainerType' 'Exe' ([ConfidenceLevel]::High) 'The supplied file is a portable executable.'
     & $add 'PayloadType' 'Exe' ([ConfidenceLevel]::High) 'The supplied executable is the installer payload container.'
     & $add 'MsiKind' 'NotApplicable' ([ConfidenceLevel]::High) 'MSI classification does not apply to an EXE.'
-    if ($metadata.Architecture -ne 'Unknown') { & $add 'Architecture' $metadata.Architecture ([ConfidenceLevel]::High) 'Read from the PE COFF machine field.' }
+    if ($metadata.Architecture -ne 'Unknown') { & $add 'InstallerArchitecture' $metadata.Architecture ([ConfidenceLevel]::High) 'Read from the PE COFF machine field.' }
     $version = $metadata.FileVersionInfo
     & $add 'ProductName' $version.ProductName ([ConfidenceLevel]::Medium) 'Read from the executable version resource.'
     & $add 'Manufacturer' $version.CompanyName ([ConfidenceLevel]::Medium) 'Read from the executable version resource.'
@@ -27,12 +27,12 @@ function Get-ExeEvidence {
     $candidates = @($fixedOrder | Where-Object { $frameworkMatches -contains $_ })
     & $add 'FrameworkCandidates' $candidates ([ConfidenceLevel]::High) 'Observed framework candidates, reported in fixed order.'
     $fileName = Split-Path -Leaf $Path
-    if ($candidates.Count -gt 1) { $findings.Add((New-ForgeFinding -Severity Blocking -Code 'FRAMEWORK_AMBIGUOUS' -Field 'Framework' -Message ("Multiple EXE framework signatures matched: {0}." -f ($candidates -join ', ')))) }
-    elseif ($candidates.Count -eq 0) { $findings.Add((New-ForgeFinding -Severity Blocking -Code 'FRAMEWORK_UNRESOLVED' -Field 'Framework' -Message 'No recognized EXE framework signature was observed.')) }
+    if ($candidates.Count -gt 1) { $findings.Add((New-ForgeFinding -Severity Warning -Code 'FRAMEWORK_AMBIGUOUS' -Field 'Framework' -Message ("Multiple EXE framework signatures matched: {0}." -f ($candidates -join ', ')))) }
+    elseif ($candidates.Count -eq 0) { $findings.Add((New-ForgeFinding -Severity Warning -Code 'FRAMEWORK_UNRESOLVED' -Field 'Framework' -Message 'No recognized EXE framework signature was observed.')) }
     elseif ($candidates.Count -eq 1) {
         $framework = $candidates[0]
         & $add 'Framework' $framework ([ConfidenceLevel]::High) 'Recognized from a conservative PE signature.'
-        if ($framework -eq [InstallerFramework]::InstallShield) { $findings.Add((New-ForgeFinding -Severity Blocking -Code 'EXE_ARGUMENT_PROFILE_UNRESOLVED' -Field 'InstallCommand' -Message 'InstallShield was recognized, but this provider has no safe silent argument profile.')) }
+        if ($framework -eq [InstallerFramework]::InstallShield) { $findings.Add((New-ForgeFinding -Severity Warning -Code 'EXE_ARGUMENT_PROFILE_UNRESOLVED' -Field 'InstallCommand' -Message 'InstallShield was recognized, but this provider has no safe silent argument profile.')) }
         else {
             $arguments = switch ($framework) { ([InstallerFramework]::Nsis) { @('/S') } ([InstallerFramework]::InnoSetup) { @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') } ([InstallerFramework]::Squirrel) { @('--silent') } ([InstallerFramework]::WiXBurn) { @('/quiet','/norestart') } }
             & $add 'InstallCommand' ([CommandSpec]::new($fileName,$arguments,@(0))) ([ConfidenceLevel]::Medium) 'Conservative framework profile; verify arguments and exit behavior before deployment.' ([EvidenceSource]::Inferred)

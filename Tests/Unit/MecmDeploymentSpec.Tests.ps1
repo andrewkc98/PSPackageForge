@@ -166,7 +166,7 @@ InModuleScope PSPackageForge {
                 # parses that ISO-8601-shaped string into a [DateTime], and round-tripping a DateTime
                 # back through Should -Be's own formatting would make this assertion depend on which
                 # PowerShell edition is running it rather than on what ConvertTo-MecmDeploymentSpec did.
-                $script:Spec.SourceManifest.SchemaVersion   | Should -Be '1.0'
+                $script:Spec.SourceManifest.SchemaVersion   | Should -Be '2.0'
                 $script:Spec.SourceManifest.GeneratedAtUtc  | Should -Be '2026-08-20T13:07:01.3761677Z'
                 $script:Spec.SourceManifest.InstallerSHA256 | Should -Be $script:SevenZipManifest.Installer.SHA256
             }
@@ -208,6 +208,47 @@ InModuleScope PSPackageForge {
                 $spec.DeploymentType[0].MaxRuntimeMinutes       | Should -Be 45
                 $spec.DeploymentType[0].EstimatedRuntimeMinutes | Should -Be 15
                 @($spec.Findings | Where-Object { $_.Code -eq 'MECM_MAX_RUNTIME_DEFAULTED' }).Count | Should -Be 0
+            }
+
+            It 'rejects zero and negative runtime values' {
+                { ConvertTo-MecmDeploymentSpec -Manifest $script:SevenZipManifest -MaxRuntimeMinutes 0 } |
+                    Should -Throw '*MaxRuntimeMinutes must be a positive integer*'
+                { ConvertTo-MecmDeploymentSpec -Manifest $script:SevenZipManifest -EstimatedRuntimeMinutes -1 } |
+                    Should -Throw '*EstimatedRuntimeMinutes must be a positive integer*'
+            }
+
+            It 'rejects an estimate above the supplied maximum and the 120-minute default' {
+                { ConvertTo-MecmDeploymentSpec -Manifest $script:SevenZipManifest -MaxRuntimeMinutes 30 -EstimatedRuntimeMinutes 31 } |
+                    Should -Throw '*EstimatedRuntimeMinutes cannot exceed MaxRuntimeMinutes*'
+                { ConvertTo-MecmDeploymentSpec -Manifest $script:SevenZipManifest -EstimatedRuntimeMinutes 121 } |
+                    Should -Throw '*EstimatedRuntimeMinutes cannot exceed MaxRuntimeMinutes*'
+            }
+        }
+
+        Context 'schema-2 application architecture' {
+
+            It 'renders application architecture from application evidence, independently of installer architecture' {
+                $manifest = $script:SevenZipManifest | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+                $manifest.Installer | Add-Member -MemberType NoteProperty -Name InstallerArchitecture -Value 'x86' -Force
+                $manifest.Installer | Add-Member -MemberType NoteProperty -Name ApplicationArchitecture -Value 'x64' -Force
+                $manifest.Installer | Add-Member -MemberType NoteProperty -Name ResolvedEvidence -Value @(
+                    [pscustomobject]@{ Field = 'ApplicationArchitecture'; Value = 'x64'; Confidence = 'High' }
+                ) -Force
+
+                (ConvertTo-MecmDeploymentSpec -Manifest $manifest).Application.Architecture | Should -Be 'x64'
+            }
+
+            It 'renders Unknown for Unknown or Low-confidence application architecture' {
+                $manifest = $script:SevenZipManifest | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+                $manifest.Installer | Add-Member -MemberType NoteProperty -Name ApplicationArchitecture -Value 'x64' -Force
+                $manifest.Installer | Add-Member -MemberType NoteProperty -Name ResolvedEvidence -Value @(
+                    [pscustomobject]@{ Field = 'ApplicationArchitecture'; Value = 'x64'; Confidence = 'Low' }
+                ) -Force
+
+                (ConvertTo-MecmDeploymentSpec -Manifest $manifest).Application.Architecture | Should -Be 'Unknown'
+
+                $manifest.Installer.ApplicationArchitecture = 'Unknown'
+                (ConvertTo-MecmDeploymentSpec -Manifest $manifest).Application.Architecture | Should -Be 'Unknown'
             }
         }
 
@@ -299,6 +340,14 @@ InModuleScope PSPackageForge {
             New-MecmDeploymentSpec -ManifestPath $script:TempManifestPath -OutputPath $outputPath -WhatIf
 
             $outputPath | Should -Not -Exist
+        }
+
+        It 'writes nothing when runtime validation fails' {
+            $outputPath = Join-Path $TestDrive 'invalid-runtime\MecmDeploymentSpec.json'
+            { New-MecmDeploymentSpec -ManifestPath $script:TempManifestPath -OutputPath $outputPath -MaxRuntimeMinutes 10 -EstimatedRuntimeMinutes 11 } |
+                Should -Throw '*EstimatedRuntimeMinutes cannot exceed MaxRuntimeMinutes*'
+            $outputPath | Should -Not -Exist
+            (Split-Path -Path $outputPath -Parent) | Should -Not -Exist
         }
     }
 }

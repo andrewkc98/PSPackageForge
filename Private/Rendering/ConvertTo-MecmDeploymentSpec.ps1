@@ -194,6 +194,18 @@ function ConvertTo-MecmDeploymentSpec {
         [Nullable[int]] $EstimatedRuntimeMinutes
     )
 
+    if ($null -ne $MaxRuntimeMinutes -and [int] $MaxRuntimeMinutes -le 0) {
+        throw 'MaxRuntimeMinutes must be a positive integer.'
+    }
+    if ($null -ne $EstimatedRuntimeMinutes -and [int] $EstimatedRuntimeMinutes -le 0) {
+        throw 'EstimatedRuntimeMinutes must be a positive integer.'
+    }
+    $maxRuntimeWasSupplied = $null -ne $MaxRuntimeMinutes
+    $resolvedMaxRuntimeMinutes = if (-not $maxRuntimeWasSupplied) { 120 } else { [int] $MaxRuntimeMinutes }
+    if ($null -ne $EstimatedRuntimeMinutes -and [int] $EstimatedRuntimeMinutes -gt $resolvedMaxRuntimeMinutes) {
+        throw 'EstimatedRuntimeMinutes cannot exceed MaxRuntimeMinutes.'
+    }
+
     $installer    = Get-DocumentOptionalProperty -InputObject $Manifest -Name 'Installer'
     $packageSpec  = Get-DocumentOptionalProperty -InputObject $Manifest -Name 'PackageSpec'
     $findings     = [System.Collections.Generic.List[Finding]]::new()
@@ -248,9 +260,7 @@ function ConvertTo-MecmDeploymentSpec {
     }
 
     # ---- Runtime ----------------------------------------------------------------------------
-    $resolvedMaxRuntimeMinutes = $MaxRuntimeMinutes
-    if ($null -eq $resolvedMaxRuntimeMinutes) {
-        $resolvedMaxRuntimeMinutes = 120
+    if (-not $maxRuntimeWasSupplied) {
         $findings.Add((New-ForgeFinding -Severity Info -Code 'MECM_MAX_RUNTIME_DEFAULTED' `
             -Message 'MaxRuntimeMinutes was not supplied. PSPackageForge never measures an installer''s actual run time, so the ConfigMgr platform default of 120 minutes was used instead of a real estimate. Supply -MaxRuntimeMinutes with a measured value before deploying at scale.' `
             -Field 'MaxRuntimeMinutes'))
@@ -276,6 +286,23 @@ function ConvertTo-MecmDeploymentSpec {
     })
 
     $productName = "$(Get-DocumentOptionalProperty -InputObject $installer -Name 'ProductName')"
+
+    $applicationArchitecture = "$(Get-DocumentOptionalProperty -InputObject $installer -Name 'ApplicationArchitecture')"
+    $applicationArchitectureEvidence = @(
+        @(Get-DocumentOptionalProperty -InputObject $installer -Name 'ResolvedEvidence') |
+            Where-Object { "$(Get-DocumentOptionalProperty -InputObject $_ -Name 'Field')" -eq 'ApplicationArchitecture' }
+    )
+    $applicationArchitectureConfidence = if ($applicationArchitectureEvidence.Count -gt 0) {
+        "$(Get-DocumentOptionalProperty -InputObject $applicationArchitectureEvidence[0] -Name 'Confidence')"
+    }
+    else {
+        ''
+    }
+    if ([string]::IsNullOrWhiteSpace($applicationArchitecture) -or
+        $applicationArchitecture -eq 'Unknown' -or
+        $applicationArchitectureConfidence -eq 'Low') {
+        $applicationArchitecture = 'Unknown'
+    }
 
     $deploymentType = [ordered] @{
         Name                    = "$productName - Script Installer"
@@ -306,6 +333,7 @@ function ConvertTo-MecmDeploymentSpec {
             LocalizedDisplayName = $productName
             Publisher             = "$(Get-DocumentOptionalProperty -InputObject $installer -Name 'Manufacturer')"
             SoftwareVersion       = "$(Get-DocumentOptionalProperty -InputObject $installer -Name 'ProductVersionRaw')"
+            Architecture         = $applicationArchitecture
         }
         DeploymentType = @($deploymentType)
         Findings       = @($findings | ForEach-Object { $_.ToOrderedDictionary() })

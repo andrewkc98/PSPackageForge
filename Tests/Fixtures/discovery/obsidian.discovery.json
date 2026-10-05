@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": "1.0",
+  "SchemaVersion": "2.0",
   "GeneratedAtUtc": "2026-08-26T12:00:00.0000000Z",
   "Query": { "DisplayNameLike": "Obsidian*" },
   "Matches": [

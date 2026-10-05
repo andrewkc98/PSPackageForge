@@ -102,9 +102,9 @@
 
         $documentResult = New-PackageDocument -ManifestPath $manifestFile.FullName
 
-        # Self-check the emitted files against their own manifest before returning. A
-        # failure here means the renderers produced something inconsistent with what they
-        # just wrote, not a judgement about the target application.
+        # Self-check the emitted files against their own schema-2 manifest before returning.
+        # A failure here means the renderers produced something inconsistent with what they
+        # just wrote, not a judgement about the target application or package readiness.
         $validationFindings = @(Test-ScaffoldOutput -OutputPath $resolvedOutput -ManifestPath $manifestFile.FullName)
 
         if ($validationFindings.Count -gt 0) {

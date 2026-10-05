@@ -23,7 +23,7 @@ function Add-ForgeInstalledAppUninstallEvidence {
         & $AddEvidence 'ProductCodePresent' $true ([ConfidenceLevel]::High) 'Confirmed Windows Installer product-code registration.'
         & $AddEvidence 'SupportsMsiUninstall' $true ([ConfidenceLevel]::High) 'Installed-product registration confirms msiexec product-code removal support.'
 
-        $msiUninstall = [CommandSpec]::new('msiexec.exe', @('/x', $productCode, '/qn'), @(0, 3010, 1641, 1707))
+        $msiUninstall = [CommandSpec]::new('msiexec.exe', @('/x', $productCode, '/qn', 'REBOOT=ReallySuppress'), @(0, 3010, 1641, 1707))
         & $AddEvidence 'UninstallCommand' $msiUninstall.ToOrderedDictionary() ([ConfidenceLevel]::High) (
             'Deterministic quiet removal command from a confirmed Windows Installer product-code registration.')
         return

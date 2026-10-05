@@ -5,7 +5,7 @@
 
         .DESCRIPTION
             Run by New-PackageScaffold immediately before it returns. This is deliberately
-            the minimal subset (plan §5.6): no unresolved template tokens, every generated
+            the minimal pre-package scaffold self-check: no unresolved template tokens, every generated
             .ps1 parses, every file the manifest references exists, the detection script is
             under the ConfigMgr 32 KB limit, and the staged installer's hash matches the
             manifest. The full standalone Test-PackageScaffold cmdlet is separate future

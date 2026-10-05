@@ -11,6 +11,8 @@ jobs:
   build:
     name: Windows PowerShell 5.1
     runs-on: windows-latest
+    env:
+      PSPACKAGEFORGE_RUN_WINDOWS_ACCEPTANCE: '1'
 
     steps:
       - name: Checkout
@@ -29,6 +31,16 @@ jobs:
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module Pester           -RequiredVersion 5.7.1  -Force -SkipPublisherCheck -AllowClobber
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force
+
+      - name: Stage PSADT acceptance dependency
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dependencyRoot = Join-Path $env:RUNNER_TEMP 'PSPackageForgeDependencies'
+          New-Item -ItemType Directory -Path $dependencyRoot -Force | Out-Null
+          Save-Module -Name PSAppDeployToolkit -RequiredVersion 4.0.6 -Repository PSGallery -Path $dependencyRoot -Force
+          $psadtModulePath = Join-Path $dependencyRoot 'PSAppDeployToolkit\4.0.6\PSAppDeployToolkit.psd1'
+          "PSPACKAGEFORGE_PSADT_MODULE_PATH=$psadtModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build (analyze + test)
         shell: powershell

@@ -46,7 +46,7 @@ if ($Task -in @('All', 'Analyze')) {
     $results = Invoke-ScriptAnalyzer -Path $root -Recurse -Settings (Join-Path $root 'PSScriptAnalyzerSettings.psd1')
 
     # Generated output under Examples/ is a rendering artefact, not module source.
-    $results = @($results | Where-Object { $_.ScriptPath -notmatch '\\Examples\\' })
+    $results = @($results | Where-Object { $_.ScriptPath -notmatch '(?i)(?:^|[\\/])Examples[\\/]' })
 
     if ($results.Count -gt 0) {
         # Not every diagnostic record carries an Extent -- file-level rules such as

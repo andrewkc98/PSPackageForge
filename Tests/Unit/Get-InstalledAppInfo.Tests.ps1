@@ -169,7 +169,7 @@ InModuleScope PSPackageForge {
                 Should -Not -BeNullOrEmpty
         }
 
-        It 'maps identity, location, context, and registry-view architecture with provenance' {
+        It 'maps identity, location, and context without treating registry view as architecture evidence' {
             $script:RegistryRows['LocalMachine|Registry64'] = @(
                 New-TestRegistryUninstallEntry `
                     -DisplayName 'Acme Editor' `
@@ -185,7 +185,7 @@ InModuleScope PSPackageForge {
             (Get-TestEvidenceRecord $match 'ProductVersionRaw').Value | Should -Be '4.5.6'
             (Get-TestEvidenceRecord $match 'InstallLocation').Value   | Should -Be '%ProgramFiles%\Acme Editor'
             (Get-TestEvidenceRecord $match 'SelectedContext').Value   | Should -Be 'System'
-            (Get-TestEvidenceRecord $match 'Architecture').Value      | Should -Be 'x64'
+            (Get-TestEvidenceRecord $match 'Architecture') | Should -BeNullOrEmpty
 
             foreach ($record in $match.Evidence) {
                 $record.Source | Should -Be ([EvidenceSource]::Registry)
@@ -193,7 +193,7 @@ InModuleScope PSPackageForge {
             (Get-TestEvidenceRecord $match 'ProductName').Confidence     | Should -Be ([ConfidenceLevel]::High)
             (Get-TestEvidenceRecord $match 'InstallLocation').Confidence | Should -Be ([ConfidenceLevel]::High)
             (Get-TestEvidenceRecord $match 'SelectedContext').Confidence | Should -Be ([ConfidenceLevel]::High)
-            (Get-TestEvidenceRecord $match 'Architecture').Confidence    | Should -Be ([ConfidenceLevel]::Medium)
+            $match.Findings | Where-Object Field -eq 'Architecture' | Should -BeNullOrEmpty
         }
 
         It 'maps a current-user registration to User context' {
@@ -227,7 +227,7 @@ InModuleScope PSPackageForge {
             $command.Value.Executable   | Should -BeLike '*msiexec*'
             $command.Value.ArgumentList | Should -Contain '/x'
             $command.Value.ArgumentList | Should -Contain $productCode
-            $command.Value.ArgumentList | Should -Contain '/qn'
+            $command.Value.ArgumentList | Should -Be @('/x', $productCode, '/qn', 'REBOOT=ReallySuppress')
         }
 
         It 'refuses a malformed MSI registration rather than treating its subkey as a product code' {
@@ -358,7 +358,7 @@ InModuleScope PSPackageForge {
             $result = Get-InstalledAppInfo -DisplayNameLike 'Acme*'
 
             $result.PSTypeNames | Should -Contain 'PSPackageForge.InstalledAppDiscoveryResult'
-            $result.SchemaVersion  | Should -Be '1.0'
+            $result.SchemaVersion  | Should -Be '2.0'
             $result.GeneratedAtUtc | Should -Not -BeNullOrEmpty
             $result.Query.DisplayNameLike | Should -Be 'Acme*'
             $result.Matches.Count   | Should -Be 1
@@ -372,11 +372,26 @@ InModuleScope PSPackageForge {
             $json   = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
 
             $result.DiscoveryPath | Should -Be (Resolve-Path -LiteralPath $outputPath).ProviderPath
-            $json.SchemaVersion   | Should -Be '1.0'
+            $json.SchemaVersion   | Should -Be '2.0'
             $json.Query.DisplayNameLike | Should -Be 'Acme*'
             $json.Matches.Count   | Should -Be 1
             $json.Matches[0].Evidence[0].Source     | Should -Be 'Registry'
             $json.Matches[0].Evidence[0].Confidence | Should -BeIn @('High', 'Medium', 'Low')
+        }
+
+        It 'imports the committed schema-2 discovery fixtures deterministically' {
+            foreach ($fixtureName in @('kicad.discovery.json', 'obsidian.discovery.json')) {
+                $fixturePath = Join-Path $script:ModuleRoot "Tests/Fixtures/discovery/$fixtureName"
+                $first = Read-InstalledAppDiscoveryData -Path $fixturePath
+                $second = Read-InstalledAppDiscoveryData -Path $fixturePath
+
+                $first.Provider | Should -Be 'DiscoveryJson'
+                $first.Path | Should -Be (Resolve-Path -LiteralPath $fixturePath).ProviderPath
+                $first.MatchId | Should -Be $second.MatchId
+                (@($first.Evidence | ForEach-Object { $_.ToOrderedDictionary() } | ConvertTo-Json -Depth 12) -join '') |
+                    Should -Be ((@($second.Evidence | ForEach-Object { $_.ToOrderedDictionary() } | ConvertTo-Json -Depth 12) -join ''))
+                @($first.Evidence | Where-Object Field -eq 'Architecture') | Should -BeNullOrEmpty
+            }
         }
 
         It 'honors WhatIf and does not write discovery JSON' {
@@ -433,7 +448,7 @@ InModuleScope PSPackageForge {
             }
 
             $script:DiscoveryDocument = [ordered] @{
-                SchemaVersion  = '1.0'
+                SchemaVersion  = '2.0'
                 GeneratedAtUtc = '2026-08-26T12:00:00.0000000Z'
                 Query          = [ordered] @{ DisplayNameLike = 'Acme*' }
                 Matches        = @($script:FirstMatch)
@@ -476,6 +491,40 @@ InModuleScope PSPackageForge {
             $command.Value['ExpectedExitCodes'] | Should -Be @(0)
         }
 
+        It 'imports explicit schema-2 application architecture evidence with provenance' {
+            $script:DiscoveryDocument.SchemaVersion = '2.0'
+            $script:FirstMatch.Evidence += [ordered] @{
+                Field = 'ApplicationArchitecture'; Value = 'x64'; Source = 'Registry'
+                Confidence = 'High'; Notes = 'Observed from the installed application.'
+            }
+            $script:DiscoveryDocument | ConvertTo-Json -Depth 20 |
+                Set-Content -LiteralPath $script:DiscoveryPath -Encoding UTF8
+
+            $result = Read-InstalledAppDiscoveryData -Path $script:DiscoveryPath
+            $architecture = $result.Evidence | Where-Object Field -eq 'ApplicationArchitecture'
+
+            $architecture.Value      | Should -Be 'x64'
+            $architecture.Confidence | Should -Be ([ConfidenceLevel]::High)
+            $architecture.Source     | Should -Be ([EvidenceSource]::DiscoveryJson)
+            $architecture.Notes      | Should -BeLike '*Observed from the installed application*'
+            $architecture.Notes      | Should -BeLike '*original source Registry*'
+        }
+
+        It 'rejects schema-1 and mixed legacy architecture input with a migration error' {
+            $script:DiscoveryDocument.SchemaVersion = '1.0'
+            $script:FirstMatch.Evidence[0].Field = 'Architecture'
+            $script:DiscoveryDocument | ConvertTo-Json -Depth 20 |
+                Set-Content -LiteralPath $script:DiscoveryPath -Encoding UTF8
+            { Read-InstalledAppDiscoveryData -Path $script:DiscoveryPath } |
+                Should -Throw '*not supported*'
+
+            $script:DiscoveryDocument.SchemaVersion = '2.0'
+            $script:DiscoveryDocument | ConvertTo-Json -Depth 20 |
+                Set-Content -LiteralPath $script:DiscoveryPath -Encoding UTF8
+            { Read-InstalledAppDiscoveryData -Path $script:DiscoveryPath } |
+                Should -Throw "*legacy field 'Architecture'*"
+        }
+
         It 'requires an explicit match ID when discovery contains multiple matches' {
             $second = [ordered] @{}
             foreach ($key in $script:FirstMatch.Keys) { $second[$key] = $script:FirstMatch[$key] }
@@ -498,13 +547,13 @@ InModuleScope PSPackageForge {
         }
 
         It 'rejects unsupported schemas, unknown IDs, duplicate IDs, and empty evidence' {
-            $script:DiscoveryDocument.SchemaVersion = '2.0'
+            $script:DiscoveryDocument.SchemaVersion = '1.0'
             $script:DiscoveryDocument | ConvertTo-Json -Depth 20 |
                 Set-Content -LiteralPath $script:DiscoveryPath -Encoding UTF8
             { Read-InstalledAppDiscoveryData -Path $script:DiscoveryPath } |
                 Should -Throw '*not supported*'
 
-            $script:DiscoveryDocument.SchemaVersion = '1.0'
+            $script:DiscoveryDocument.SchemaVersion = '2.0'
             $script:DiscoveryDocument | ConvertTo-Json -Depth 20 |
                 Set-Content -LiteralPath $script:DiscoveryPath -Encoding UTF8
             { Read-InstalledAppDiscoveryData -Path $script:DiscoveryPath -MatchId $script:SecondMatchId } |

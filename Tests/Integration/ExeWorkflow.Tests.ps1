@@ -38,10 +38,20 @@ function Uninstall-ADTDeployment
             if ($Version -ne 4) { throw 'The deterministic template seam only accepts v4.' }
             $packagePath = Join-Path $Destination $Name
             [void] (New-Item -ItemType Directory -Path (Join-Path $packagePath 'Files') -Force)
+            [void] (New-Item -ItemType Directory -Path (Join-Path $packagePath 'Config') -Force)
+            [void] (New-Item -ItemType Directory -Path (Join-Path $packagePath 'PSAppDeployToolkit') -Force)
             Set-Content -LiteralPath (Join-Path $packagePath 'Invoke-AppDeployToolkit.ps1') `
                 -Value $script:NativeFrontend -Encoding UTF8
-            [void] (New-Item -ItemType File -Path (Join-Path $packagePath 'Invoke-AppDeployToolkit.exe') -Force)
-            if ($PassThru) { Get-Item -LiteralPath $packagePath }
+            $launcher = [byte[]]::new(68)
+            $launcher[0] = 0x4D; $launcher[1] = 0x5A; $launcher[0x3C] = 64
+            $launcher[64] = 0x50; $launcher[65] = 0x45
+            [System.IO.File]::WriteAllBytes((Join-Path $packagePath 'Invoke-AppDeployToolkit.exe'), $launcher)
+            Set-Content -LiteralPath (Join-Path $packagePath 'Config/config.psd1') -Encoding UTF8 -Value @'
+@{ Toolkit = @{ RequireAdmin = $true; LogPathNoAdminRights = 'old' }; MSI = @{ LogPathNoAdminRights = 'old' } }
+'@
+            Set-Content -LiteralPath (Join-Path $packagePath 'PSAppDeployToolkit/PSAppDeployToolkit.psd1') -Encoding UTF8 -Value "@{ ModuleVersion = '4.0.6'; RootModule = 'PSAppDeployToolkit.psm1' }"
+            Set-Content -LiteralPath (Join-Path $packagePath 'PSAppDeployToolkit/PSAppDeployToolkit.psm1') -Encoding UTF8 -Value 'function Test-Toolkit {}'
+            if ($PassThru) { [pscustomobject] @{ FullName = $packagePath } }
         }
     }
 
@@ -61,10 +71,13 @@ function Uninstall-ADTDeployment
 
         $manifest = Get-Content -LiteralPath $scaffold.ManifestPath -Raw | ConvertFrom-Json
         $manifest | Should -Not -BeNullOrEmpty
-        $manifest.SchemaVersion | Should -Be '1.0'
+        $manifest.SchemaVersion | Should -Be '2.0'
         $manifest.Readiness | Should -Be 'ReviewRequired'
         $manifest.Installer.ProductName | Should -Be 'KiCad Fixture'
         $manifest.Installer.ProductCode | Should -BeNullOrEmpty
+        $manifest.Installer.InstallerArchitecture | Should -Be 'x86'
+        $manifest.Installer.ApplicationArchitecture | Should -Be 'Unknown'
+        $manifest.Installer.PSObject.Properties.Name | Should -Not -Contain 'Architecture'
         $manifest.PackageSpec.InstallCommand.Executable | Should -Be 'nsis.exe'
         @($manifest.PackageSpec.InstallCommand.ArgumentList) | Should -Be @('/S')
         $manifest.PackageSpec.SelectedContext | Should -Be 'System'
@@ -94,7 +107,7 @@ function Uninstall-ADTDeployment
         $psadt = New-PSADTPackage -ManifestPath $scaffold.ManifestPath
         $psadt.DeploymentScriptPath | Should -Exist
         $content = Get-Content -LiteralPath $psadt.DeploymentScriptPath -Raw
-        $content | Should -Match "Start-ADTProcess -FilePath 'nsis.exe' -ArgumentList @\('/S'\)"
+        $content | Should -Match "Invoke-PSPFStartADTProcess -Executable 'nsis.exe' -ArgumentList @\('/S'\)"
         $content | Should -Not -Match 'msiexec'
     }
 
@@ -109,10 +122,13 @@ function Uninstall-ADTDeployment
         $scaffold.DetectionPath | Should -Exist
 
         $manifest = Get-Content -LiteralPath $scaffold.ManifestPath -Raw | ConvertFrom-Json
-        $manifest.SchemaVersion | Should -Be '1.0'
+        $manifest.SchemaVersion | Should -Be '2.0'
         $manifest.Readiness | Should -Be 'ReviewRequired'
         $manifest.Installer.ProductName | Should -Be 'Obsidian Fixture'
         $manifest.Installer.ProductCode | Should -BeNullOrEmpty
+        $manifest.Installer.InstallerArchitecture | Should -Be 'x64'
+        $manifest.Installer.ApplicationArchitecture | Should -Be 'Unknown'
+        $manifest.Installer.PSObject.Properties.Name | Should -Not -Contain 'Architecture'
         $manifest.PackageSpec.InstallCommand.Executable | Should -Be 'squirrel.exe'
         @($manifest.PackageSpec.InstallCommand.ArgumentList) | Should -Be @('--silent')
         $manifest.PackageSpec.SelectedContext | Should -Be 'User'
@@ -142,7 +158,7 @@ function Uninstall-ADTDeployment
         $psadt = New-PSADTPackage -ManifestPath $scaffold.ManifestPath
         $psadt.DeploymentScriptPath | Should -Exist
         $content = Get-Content -LiteralPath $psadt.DeploymentScriptPath -Raw
-        $content | Should -Match "Start-ADTProcess -FilePath 'squirrel.exe' -ArgumentList @\('--silent'\)"
+        $content | Should -Match "Invoke-PSPFStartADTProcess -Executable 'squirrel.exe' -ArgumentList @\('--silent'\)"
         $content | Should -Not -Match 'msiexec'
     }
     }

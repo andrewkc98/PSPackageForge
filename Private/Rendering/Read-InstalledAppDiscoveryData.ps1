@@ -156,6 +156,10 @@ function ConvertFrom-InstalledAppDiscoveryEvidence {
     if ([string]::IsNullOrWhiteSpace($field)) {
         throw [System.IO.InvalidDataException]::new('Discovery evidence contains an empty Field.')
     }
+    if ($field -eq 'Architecture') {
+        throw [System.IO.InvalidDataException]::new(
+            "Discovery evidence uses legacy field 'Architecture'; schema 2 requires explicit 'ApplicationArchitecture' or 'InstallerArchitecture' evidence.")
+    }
 
     $sourceText = "$(Get-DocumentOptionalProperty -InputObject $Evidence -Name 'Source')"
     if ($sourceText -ne 'Registry') {

@@ -9,6 +9,10 @@ It is for the sysadmin who packages applications and is tired of researching the
 
 ## The problem
 
+> **Status: 0.2.0 preview (initial development).** This release is for operator review and
+> testing; it carries no production-readiness guarantee. The Windows package-runtime and
+> disposable testbench matrix is planned for release verification, and its results will be
+> recorded separately after those commands run.
 Before an application can be deployed through MECM or Intune, someone has to work out how to install it silently, how to uninstall it, where it lands on disk, and how the management agent can tell it is there. For an MSI most of that is inside the file. For an EXE it is not. You identify the installer framework, search for its silent switches, install it on a test machine, and dig through the registry for the real uninstall string.
 
 The research is tedious, but the expensive part is getting it slightly wrong, because the failures are quiet. An install can succeed and still be reported as failed because detection looked in the wrong place (`0x87D00324`). An uninstall command can sit untested for a year and then fail with `1619` the day someone needs it.
@@ -75,6 +79,7 @@ Requires Windows and PowerShell 5.1 or later.
 
 ```powershell
 git clone https://github.com/andrewkc98/PSPackageForge
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 Import-Module ./PSPackageForge/PSPackageForge.psd1
 
 # 1. Optional: on a machine with the app installed, capture what the registry knows

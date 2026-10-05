@@ -50,3 +50,54 @@ Describe 'New-PackageScaffold core output' `
         (Join-Path $outputPath 'Detect-Application.ps1') | Should -Not -Exist
     }
 }
+
+Describe 'New-PackageScaffold schema-2 EXE output' {
+    BeforeAll {
+        $script:ModuleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $script:ManifestPath = Join-Path $script:ModuleRoot 'PSPackageForge.psd1'
+        $script:ExeFixturePath = Join-Path $script:ModuleRoot 'Tests\Fixtures\framework-stubs\wix-burn.exe'
+        Import-Module $script:ManifestPath -Force
+
+        # The document renderer is covered by the Windows-only integration boundary above.
+        # Keep this public scaffold contract portable: EXE evidence, manifest emission, and
+        # the pre-package self-check do not require Windows document rendering.
+        if ($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
+            Mock New-PackageDocument -ModuleName PSPackageForge {
+                [PSCustomObject] @{ DocumentPath = $null }
+            }
+        }
+    }
+
+    It 'round-trips a generated scaffold with both schema-2 architecture subjects' {
+        $outputPath = Join-Path $TestDrive 'exe-scaffold'
+
+        $result = New-PackageScaffold -Path $script:ExeFixturePath -OutputPath $outputPath
+
+        $result.ManifestPath | Should -Exist
+        $result.InstallerPath | Should -Exist
+        $manifest = Get-Content -LiteralPath $result.ManifestPath -Raw | ConvertFrom-Json
+
+        $manifest.SchemaVersion | Should -Be '2.0'
+        $manifest.Installer.InstallerArchitecture | Should -Be 'x64'
+        $manifest.Installer.ApplicationArchitecture | Should -Be 'Unknown'
+        $manifest.Installer.PSObject.Properties.Name | Should -Not -Contain 'Architecture'
+        $manifest.PackageSpec.SchemaVersion | Should -Be '2.0'
+        (Join-Path $outputPath 'PackageReceipt.json') | Should -Not -Exist
+    }
+
+    It 'reports SCAFFOLD_HASH_MISMATCH when the generated installer is tampered with' {
+        $outputPath = Join-Path $TestDrive 'exe-tampered'
+        $result = New-PackageScaffold -Path $script:ExeFixturePath -OutputPath $outputPath
+
+        Add-Content -LiteralPath $result.InstallerPath -Value 'tampered' -NoNewline
+        $findings = & (Get-Module PSPackageForge) {
+            param($scaffoldOutputPath, $scaffoldManifestPath)
+            @(Test-ScaffoldOutput -OutputPath $scaffoldOutputPath -ManifestPath $scaffoldManifestPath)
+        } $outputPath $result.ManifestPath
+
+        $findings.Code | Should -Contain 'SCAFFOLD_HASH_MISMATCH'
+        $findings | Where-Object Code -eq 'SCAFFOLD_HASH_MISMATCH' | ForEach-Object {
+            $_.Severity.ToString() | Should -Be 'Blocking'
+        }
+    }
+}
