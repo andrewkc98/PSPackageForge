@@ -37,6 +37,7 @@ function Invoke-ModuleReader {
 }
 
 function New-SyntheticPe {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param([string] $Path, [int] $Bytes, [string[]] $Payload = @(), [int] $PayloadOffset = 512, [ValidateSet('ASCII','UTF16LE')][string] $PayloadEncoding = 'ASCII')
     $data = New-Object byte[] $Bytes
     $data[0] = 0x4D; $data[1] = 0x5A
@@ -55,7 +56,9 @@ function New-SyntheticPe {
         if ($PayloadOffset -lt 512 -or ($PayloadOffset + $payloadBytes.Length) -gt $Bytes) { throw 'Synthetic payload is outside its PE section bounds.' }
         [Array]::Copy($payloadBytes, 0, $data, $PayloadOffset, $payloadBytes.Length)
     }
-    [IO.File]::WriteAllBytes($Path, $data)
+    if ($PSCmdlet.ShouldProcess($Path, 'Write synthetic PE benchmark file')) {
+        [IO.File]::WriteAllBytes($Path, $data)
+    }
 }
 
 function Find-ReferenceMarker {
@@ -158,7 +161,7 @@ New-SyntheticPe -Path $boundaryCase -Bytes 16384 -Payload @('nullsoftinst') -Pay
 
 $timings = [ordered]@{}
 $sw = [Diagnostics.Stopwatch]::StartNew()
-$cold = Invoke-ModuleReader -Path $oneMiB -AsciiMarkers $markers -Utf16LEMarkers $markers
+[void](Invoke-ModuleReader -Path $oneMiB -AsciiMarkers $markers -Utf16LEMarkers $markers)
 $sw.Stop(); $timings.ColdCompileAndFirst1MiB = $sw.ElapsedMilliseconds
 $sw.Restart(); $warmOne = Invoke-ModuleReader -Path $oneMiB -AsciiMarkers $markers -Utf16LEMarkers $markers
 $sw.Stop(); $timings.WarmMarkerless1MiB = $sw.ElapsedMilliseconds
@@ -190,11 +193,11 @@ $inputs = @(
     [pscustomobject]@{ Name = 'Obsidian'; Path = [IO.Path]::GetFullPath($ObsidianPath); ExpectedBytes = 331012528; ExpectedSHA256 = 'F233DC24896B3F2D5F9E4B01111181A561D0760B2105F0A474024C5F3143A9BC' },
     [pscustomobject]@{ Name = 'KiCad'; Path = [IO.Path]::GetFullPath($KiCadPath); ExpectedBytes = 967765696; ExpectedSHA256 = '9E24DC47119F7C472128C2F293C5E3F35569274A44C905E60A7514D47C16CE48' }
 )
-$realResults = foreach ($input in $inputs) {
-    $item = Get-Item -LiteralPath $input.Path
-    $hash = (Get-FileHash -LiteralPath $input.Path -Algorithm SHA256).Hash
-    if ($item.Length -ne $input.ExpectedBytes -or $hash -ne $input.ExpectedSHA256) { throw "Input identity mismatch for $($input.Name)." }
-    $scan = Invoke-BoundedJob -Name "ExeScan-$($input.Name)" -LimitSeconds $TimeoutSeconds -Action {
+$realResults = foreach ($benchmarkInput in $inputs) {
+    $item = Get-Item -LiteralPath $benchmarkInput.Path
+    $hash = (Get-FileHash -LiteralPath $benchmarkInput.Path -Algorithm SHA256).Hash
+    if ($item.Length -ne $benchmarkInput.ExpectedBytes -or $hash -ne $benchmarkInput.ExpectedSHA256) { throw "Input identity mismatch for $($benchmarkInput.Name)." }
+    $scan = Invoke-BoundedJob -Name "ExeScan-$($benchmarkInput.Name)" -LimitSeconds $TimeoutSeconds -Action {
         param($InputData)
         $Path = $InputData.Path; $Markers = $InputData.Markers
         $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -202,27 +205,27 @@ $realResults = foreach ($input in $inputs) {
         $metadata = & $module { param($ReaderPath, $MarkerSet) Read-PortableExecutableData -Path $ReaderPath -AsciiMarkers $MarkerSet -Utf16LEMarkers $MarkerSet -ChunkSize 4096 } $Path $Markers
         $watch.Stop()
         [pscustomobject]@{ ElapsedMilliseconds = $watch.ElapsedMilliseconds; AsciiMarkersFound = @($metadata.AsciiMarkersFound); Utf16LEMarkersFound = @($metadata.Utf16LEMarkersFound); Architecture = $metadata.Architecture; SectionNames = @($metadata.SectionNames); Version = $metadata.FileVersionInfo }
-    } -ArgumentList @([pscustomobject]@{ Path = $input.Path; Markers = $markers })
-    $endToEnd = Invoke-BoundedJob -Name "GetInstallerInfo-$($input.Name)" -LimitSeconds $TimeoutSeconds -Action {
+    } -ArgumentList @([pscustomobject]@{ Path = $benchmarkInput.Path; Markers = $markers })
+    $endToEnd = Invoke-BoundedJob -Name "GetInstallerInfo-$($benchmarkInput.Name)" -LimitSeconds $TimeoutSeconds -Action {
         param($Path)
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $info = Get-InstallerInfo -Path $Path
         $watch.Stop()
         [pscustomobject]@{ ElapsedMilliseconds = $watch.ElapsedMilliseconds; SHA256 = $info.SHA256; ContainerType = [string]$info.ContainerType; Framework = [string]$info.Framework; Signature = $info.Signature.Status; Evidence = @($info.Evidence | ForEach-Object { [pscustomobject]@{ Field = $_.Field; Value = [string]$_.Value; Source = [string]$_.Source; Confidence = [string]$_.Confidence } }) }
-    } -ArgumentList @($input.Path)
-    $hashWatch = [Diagnostics.Stopwatch]::StartNew(); [void](Get-FileHash -LiteralPath $input.Path -Algorithm SHA256); $hashWatch.Stop()
-    $auth = Invoke-BoundedJob -Name "Authenticode-$($input.Name)" -LimitSeconds $TimeoutSeconds -Action {
+    } -ArgumentList @($benchmarkInput.Path)
+    $hashWatch = [Diagnostics.Stopwatch]::StartNew(); [void](Get-FileHash -LiteralPath $benchmarkInput.Path -Algorithm SHA256); $hashWatch.Stop()
+    $auth = Invoke-BoundedJob -Name "Authenticode-$($benchmarkInput.Name)" -LimitSeconds $TimeoutSeconds -Action {
         param($Path)
         $watch = [Diagnostics.Stopwatch]::StartNew(); $signature = Get-AuthenticodeSignature -LiteralPath $Path; $watch.Stop()
         [pscustomobject]@{ ElapsedMilliseconds = $watch.ElapsedMilliseconds; Status = [string]$signature.Status; Signer = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { $null } }
-    } -ArgumentList @($input.Path)
-    $pe = Invoke-BoundedJob -Name "PEMetadata-$($input.Name)" -LimitSeconds $TimeoutSeconds -Action {
+    } -ArgumentList @($benchmarkInput.Path)
+    $pe = Invoke-BoundedJob -Name "PEMetadata-$($benchmarkInput.Name)" -LimitSeconds $TimeoutSeconds -Action {
         param($Path)
         $module = Get-Module -Name PSPackageForge | Select-Object -First 1
         $watch = [Diagnostics.Stopwatch]::StartNew(); $metadata = & $module { param($ReaderPath) Read-PortableExecutableData -Path $ReaderPath -ChunkSize 4096 } $Path; $watch.Stop()
         [pscustomobject]@{ ElapsedMilliseconds = $watch.ElapsedMilliseconds; Architecture = $metadata.Architecture; SectionNames = @($metadata.SectionNames); Version = $metadata.FileVersionInfo }
-    } -ArgumentList @($input.Path)
-    [pscustomobject]@{ Name = $input.Name; Path = $input.Path; Bytes = $item.Length; SHA256 = $hash; FullMarkerScan = $scan; GetInstallerInfo = $endToEnd; HashingMilliseconds = $hashWatch.ElapsedMilliseconds; Authenticode = $auth; PEHeaderAndVersionResource = $pe }
+    } -ArgumentList @($benchmarkInput.Path)
+    [pscustomobject]@{ Name = $benchmarkInput.Name; Path = $benchmarkInput.Path; Bytes = $item.Length; SHA256 = $hash; FullMarkerScan = $scan; GetInstallerInfo = $endToEnd; HashingMilliseconds = $hashWatch.ElapsedMilliseconds; Authenticode = $auth; PEHeaderAndVersionResource = $pe }
 }
 
 $cpu = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Name

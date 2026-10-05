@@ -16,6 +16,8 @@ The optimized scanner completed the Obsidian full-marker scan in 28,289 ms and t
 - Benchmark script SHA-256: `B4DA2C3F58A88384F1F003267ED5FB2D3327C2FCD3DA9F249DA3B417FBE09840`
 - Module loader SHA-256: `A34F1A918638B55625A26472628ED2BC06CB369648A8F77B6FFB8B4ADCAE5AC0`
 
+After the measured run, the harness received analyzer-only maintenance: the installer loop variable was renamed to avoid PowerShell's automatic `$input` variable, the synthetic PE writer gained `ShouldProcess` protection, and an unused capture was removed. Current harness SHA-256 is `3015F8D9B4966AD78D29729845DDC47709C8FA79C552DE24DA52A7DABAB2C257`; it was not used to produce `results-04` and the benchmark was not rerun. The measured results remain bound to the earlier script SHA above.
+
 The complete per-file source manifest and final measured JSON are retained at `C:\PSPackageForge-Acceptance\bench-task3-20261005-7E575602-8483-45BB-BBC2-2D535AE06E78\results-04\exe-scan-benchmark.json`. The production sources were uploaded to their matching paths under `C:\PSPackageForge-Acceptance\repo` before the run. The benchmark script passed the Windows PowerShell 5.1 parser.
 
 ## Baseline and optimized timings
