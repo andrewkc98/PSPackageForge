@@ -93,7 +93,7 @@ Describe 'Windows child-process and package-runtime acceptance' -Skip:$SuiteSkip
             [CmdletBinding(SupportsShouldProcess)]
             param(
                 [Parameter(Mandatory)] [string] $Name,
-                [Parameter(Mandatory)] [AllowEmptyString()] [string[]] $InstallArguments,
+                [Parameter(Mandatory)] [AllowEmptyCollection()] [AllowEmptyString()] [string[]] $InstallArguments,
                 [Parameter()] [AllowEmptyString()] [string[]] $UninstallArguments = @('uninstall'),
                 [Parameter()] [string] $InstallWorkingDirectory,
                 [Parameter()] [string] $UninstallWorkingDirectory,
@@ -253,6 +253,23 @@ Describe 'Windows child-process and package-runtime acceptance' -Skip:$SuiteSkip
         finally {
             Remove-Item Env:NATIVE_RECORDER_OUTPUT -ErrorAction SilentlyContinue
             Remove-Item Env:NATIVE_RECORDER_ENV_NAMES -ErrorAction SilentlyContinue
+            Remove-Item Env:NATIVE_RECORDER_EXIT_CODE -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'runs an argumentless install with zero native child arguments' {
+        $package = New-AcceptancePackage -Name 'argumentless-runtime' -InstallArguments ([string[]] @())
+        $recordPath = Join-Path $package.Root 'argumentless child.json'
+        $env:NATIVE_RECORDER_OUTPUT = $recordPath
+        $env:NATIVE_RECORDER_EXIT_CODE = '0'
+        try {
+            $processCode = Invoke-PackageDeployment -FrontendPath $package.Generated.DeploymentScriptPath -DeploymentType Install
+            $processCode | Should -Be 0
+            $child = Read-RecorderResult -Path $recordPath
+            @($child.Arguments).Count | Should -Be 0
+        }
+        finally {
+            Remove-Item Env:NATIVE_RECORDER_OUTPUT -ErrorAction SilentlyContinue
             Remove-Item Env:NATIVE_RECORDER_EXIT_CODE -ErrorAction SilentlyContinue
         }
     }

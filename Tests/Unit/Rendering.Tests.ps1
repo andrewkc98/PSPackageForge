@@ -988,4 +988,32 @@ function Get-Item {
             $findings.Code | Should -Contain 'SCAFFOLD_DETECTION_SCRIPT_TOO_LARGE'
         }
     }
+
+    Describe 'Generated PSADT process helper argument binding' {
+        It 'omits an empty argument string but preserves one quoted empty argument' {
+            $helper = Add-PSPFProcessHelper -Content "function Install-ADTDeployment`n{`n}`n"
+            $capture = {
+                param($helperText, [AllowEmptyCollection()][AllowEmptyString()][string[]] $arguments)
+                function Start-ADTProcess {
+                    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                        Justification = 'This test double only captures the parameters forwarded by the generated helper.')]
+                    [CmdletBinding()]
+                    param($FilePath, $ArgumentList, $WorkingDirectory, $SuccessExitCodes, $RebootExitCodes)
+                    return $PSBoundParameters
+                }
+                . ([scriptblock]::Create($helperText))
+                Set-Variable -Name adtSession -Value ([pscustomobject] @{ DirFiles = 'C:\Package\Files' })
+                return Invoke-PSPFStartADTProcess -Executable 'recorder.exe' -ArgumentList $arguments
+            }
+
+            $zeroArguments = & $capture $helper ([string[]] @())
+            $zeroArguments.ContainsKey('ArgumentList') | Should -BeFalse
+            $zeroArguments.FilePath | Should -Be 'recorder.exe'
+            $zeroArguments.WorkingDirectory | Should -Be 'C:\Package\Files'
+
+            $oneEmptyArgument = & $capture $helper ([string[]] @(''))
+            $oneEmptyArgument.ContainsKey('ArgumentList') | Should -BeTrue
+            $oneEmptyArgument.ArgumentList | Should -Be '""'
+        }
+    }
 }

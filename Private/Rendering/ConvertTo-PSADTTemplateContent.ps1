@@ -350,9 +350,9 @@ function Invoke-PSPFStartADTProcess {
 
     $invoke = @{
         FilePath = $expandedExecutable
-        ArgumentList = $argumentString
         WorkingDirectory = $resolvedWorkingDirectory
     }
+    if ($argumentString.Length -gt 0) { $invoke.ArgumentList = $argumentString }
     if ($null -ne $SuccessExitCodes -and @($SuccessExitCodes).Count -gt 0) { $invoke.SuccessExitCodes = $SuccessExitCodes }
     if ($null -ne $RebootExitCodes -and @($RebootExitCodes).Count -gt 0) { $invoke.RebootExitCodes = $RebootExitCodes }
     Start-ADTProcess @invoke
