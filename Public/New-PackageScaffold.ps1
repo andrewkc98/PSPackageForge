@@ -76,6 +76,28 @@
         $operator = Get-ForgeEnumValue -Value $DetectionOperator -Type ([DetectionOperator]) -Default ([DetectionOperator]::Exact)
         $packageSpec = Resolve-PackageSpec -InstallerInfo $installerInfo -DetectionOperator $operator
 
+        $expectedVersion = $installerInfo.GetResolvedEvidence('DetectionTargetVersion')
+        if ($packageSpec.DetectionSpec.Count -eq 1 -and
+            $packageSpec.DetectionSpec[0].Kind -eq [DetectionKind]::File -and
+            $packageSpec.DetectionSpec[0].Operator -eq [DetectionOperator]::Exists -and
+            ($null -eq $expectedVersion -or [string]::IsNullOrWhiteSpace("$($expectedVersion.Value)"))) {
+            $packageSpec.DetectionSpec[0].Rationale = 'Only file existence was checked; the expected version is unconfirmed because no DetectionTargetVersion evidence is available.'
+            foreach ($decision in $packageSpec.DecisionEvidence) {
+                if ($decision.Field -eq 'Detection') {
+                    $decision.Value = $packageSpec.DetectionSpec[0].ToOrderedDictionary()
+                }
+            }
+
+            $alreadyReported = @($installerInfo.Findings | Where-Object {
+                $_.Code -eq 'DETECTION_VERSION_UNCONFIRMED' -and $_.Field -eq 'DetectionTargetVersion'
+            }).Count -gt 0
+            if (-not $alreadyReported) {
+                $versionFinding = New-ForgeFinding -Severity Warning -Code 'DETECTION_VERSION_UNCONFIRMED' `
+                    -Field 'DetectionTargetVersion' -Message 'File-existence detection was selected because no expected file version is available; confirm the expected version before deployment.'
+                $installerInfo.Findings = @($installerInfo.Findings) + $versionFinding
+            }
+        }
+
         if (-not (Test-Path -LiteralPath $OutputPath)) {
             [void] (New-Item -ItemType Directory -Path $OutputPath -Force)
         }

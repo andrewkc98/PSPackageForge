@@ -117,11 +117,42 @@ function Read-PortableExecutableData {
 }
 function Find-PortableMarker {
     param([byte[]] $Haystack, [byte[]] $Needle)
-    if ($Needle.Length -eq 0 -or $Needle.Length -gt $Haystack.Length) { return $false }
-    for ($i = 0; $i -le $Haystack.Length - $Needle.Length; $i++) {
-        $match = $true
-        for ($j = 0; $j -lt $Needle.Length; $j++) { if ($Haystack[$i + $j] -ne $Needle[$j]) { $match = $false; break } }
-        if ($match) { return $true }
+    if ($null -eq ('PSPackageForge.Internal.PortableMarkerMatcher' -as [type])) {
+        Add-Type -TypeDefinition @'
+namespace PSPackageForge.Internal
+{
+    public static class PortableMarkerMatcher
+    {
+        public static bool Contains(byte[] haystack, byte[] needle)
+        {
+            if (haystack == null || needle == null || needle.Length == 0 || needle.Length > haystack.Length)
+            {
+                return false;
+            }
+
+            int lastStart = haystack.Length - needle.Length;
+            for (int start = 0; start <= lastStart; start++)
+            {
+                int index = 0;
+                while (index < needle.Length && haystack[start + index] == needle[index])
+                {
+                    index++;
+                }
+
+                if (index == needle.Length)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
-    return $false
+}
+'@
+    }
+
+    $matcherType = 'PSPackageForge.Internal.PortableMarkerMatcher' -as [type]
+    if ($null -eq $matcherType) { throw 'The portable marker matcher could not be compiled.' }
+    return $matcherType::Contains($Haystack, $Needle)
 }

@@ -101,3 +101,156 @@ Describe 'New-PackageScaffold schema-2 EXE output' {
         }
     }
 }
+
+Describe 'New-PackageScaffold unconfirmed file version finding' `
+    -Skip:($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
+
+    BeforeAll {
+        $script:ModuleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $script:ManifestPath = Join-Path $script:ModuleRoot 'PSPackageForge.psd1'
+        $script:ExeFixturePath = Join-Path $script:ModuleRoot 'Tests\Fixtures\framework-stubs\wix-burn.exe'
+        $script:MsiFixturePath = Join-Path $script:ModuleRoot 'Tests\Fixtures\native-clean.msi'
+        Import-Module $script:ManifestPath -Force
+    }
+
+    It 'adds one warning and explains that only file existence was checked when the expected version is absent' {
+        $target = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('DetectionTarget', 'C:\Program Files\Example\app.exe',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Reviewed test target.')
+        }
+        $context = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('SelectedContext', 'System',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Reviewed test context.')
+        }
+        $commands = & (Get-Module PSPackageForge) {
+            $install = [CommandSpec]::new('setup.exe', @('/S'))
+            $uninstall = [CommandSpec]::new('uninstall.exe', @('/S'))
+            @(
+                [EvidenceRecord]::new('InstallCommand', $install, [EvidenceSource]::UserOverride,
+                    [ConfidenceLevel]::High, 'Reviewed test install command.'),
+                [EvidenceRecord]::new('UninstallCommand', $uninstall, [EvidenceSource]::UserOverride,
+                    [ConfidenceLevel]::High, 'Reviewed test uninstall command.')
+            )
+        }
+        $outputPath = Join-Path $TestDrive 'missing-version'
+
+        $result = New-PackageScaffold -Path $script:ExeFixturePath -OutputPath $outputPath `
+            -AdditionalEvidence (@($target, $context) + $commands)
+        $manifest = Get-Content -LiteralPath $result.ManifestPath -Raw | ConvertFrom-Json
+        $finding = @($manifest.Findings | Where-Object {
+            $_.Code -eq 'DETECTION_VERSION_UNCONFIRMED' -and $_.Field -eq 'DetectionTargetVersion'
+        })
+
+        $finding.Count | Should -Be 1
+        $finding[0].Severity | Should -Be 'Warning'
+        $result.Readiness | Should -Be 'ReviewRequired'
+        $manifest.PackageSpec.DetectionSpec[0].Operator | Should -Be 'Exists'
+        $manifest.PackageSpec.DetectionSpec[0].Rationale | Should -Match 'Only file existence was checked'
+        $manifest.PackageSpec.DetectionSpec[0].Rationale | Should -Match 'version is unconfirmed'
+        $result.DetectionPath | Should -Exist
+        (Get-Content -LiteralPath $result.DetectionPath -Raw) | Should -Match 'Write-Output "Detected:'
+        (Get-Content -LiteralPath $result.DocumentPath -Raw) | Should -Match 'Only file existence was checked'
+    }
+
+    It 'does not append a duplicate warning with the same code and field' {
+        $target = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('DetectionTarget', 'C:\Program Files\Example\app.exe',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Reviewed test target.')
+        }
+        $context = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('SelectedContext', 'System',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Reviewed test context.')
+        }
+        $commands = & (Get-Module PSPackageForge) {
+            $install = [CommandSpec]::new('setup.exe', @('/S'))
+            $uninstall = [CommandSpec]::new('uninstall.exe', @('/S'))
+            @(
+                [EvidenceRecord]::new('InstallCommand', $install, [EvidenceSource]::UserOverride,
+                    [ConfidenceLevel]::High, 'Reviewed test install command.'),
+                [EvidenceRecord]::new('UninstallCommand', $uninstall, [EvidenceSource]::UserOverride,
+                    [ConfidenceLevel]::High, 'Reviewed test uninstall command.')
+            )
+        }
+        $script:PreexistingWarning = & (Get-Module PSPackageForge) {
+            New-ForgeFinding -Severity Warning -Code 'DETECTION_VERSION_UNCONFIRMED' `
+                -Field 'DetectionTargetVersion' -Message 'Previously reported by the provider.'
+        }
+        $script:InstallerInfoWithWarning = Get-InstallerInfo -Path $script:ExeFixturePath `
+            -AdditionalEvidence (@($target, $context) + $commands)
+        $script:InstallerInfoWithWarning.Findings = @($script:InstallerInfoWithWarning.Findings) + $script:PreexistingWarning
+        Mock Get-InstallerInfo -ModuleName PSPackageForge { $script:InstallerInfoWithWarning }
+        $outputPath = Join-Path $TestDrive 'duplicate-warning'
+
+        $result = New-PackageScaffold -Path $script:ExeFixturePath -OutputPath $outputPath `
+            -AdditionalEvidence (@($target, $context) + $commands)
+        $manifest = Get-Content -LiteralPath $result.ManifestPath -Raw | ConvertFrom-Json
+
+        @($manifest.Findings | Where-Object {
+            $_.Code -eq 'DETECTION_VERSION_UNCONFIRMED' -and $_.Field -eq 'DetectionTargetVersion'
+        }).Count | Should -Be 1
+    }
+
+    It 'does not report an unconfirmed file version when detection falls back to an MSI product code' {
+        $context = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('SelectedContext', 'System',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Reviewed test context.')
+        }
+        $script:InstallerInfoForMsiFallback = & (Get-Module PSPackageForge) {
+            param($filePath, $selectedContext)
+            $resolvedPath = (Resolve-Path -LiteralPath $filePath).ProviderPath
+            $info = [InstallerInfo]::new()
+            $info.Path = $resolvedPath
+            $info.FileName = [System.IO.Path]::GetFileName($resolvedPath)
+            $info.SHA256 = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256).Hash
+            $info.ContainerType = [ContainerType]::Msi
+            $info.ProductCode = '{11111111-1111-1111-1111-111111111111}'
+            $info.ProductCodePresent = $true
+            $info.SupportsMsiUninstall = $true
+            $info.Evidence = @($selectedContext)
+            $info.ResolvedEvidence = @($selectedContext)
+            $info
+        } $script:MsiFixturePath $context
+        Mock Get-InstallerInfo -ModuleName PSPackageForge { $script:InstallerInfoForMsiFallback }
+        $result = New-PackageScaffold -Path $script:MsiFixturePath `
+            -OutputPath (Join-Path $TestDrive 'msi-fallback') -AdditionalEvidence $context
+        $manifest = Get-Content -LiteralPath $result.ManifestPath -Raw | ConvertFrom-Json
+
+        @($manifest.Findings | Where-Object Code -eq 'DETECTION_VERSION_UNCONFIRMED').Count | Should -Be 0
+        $manifest.PackageSpec.DetectionSpec[0].Kind | Should -Be 'MsiProductCode'
+    }
+
+    It 'keeps malformed expected versions on the existing low-confidence NeedsInput path without the missing-version warning' {
+        $target = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('DetectionTarget', 'C:\Program Files\Example\app.exe',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Reviewed test target.')
+        }
+        $version = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('DetectionTargetVersion', '26.02 beta',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Malformed test version.')
+        }
+        $context = & (Get-Module PSPackageForge) {
+            [EvidenceRecord]::new('SelectedContext', 'System',
+                [EvidenceSource]::UserOverride, [ConfidenceLevel]::High, 'Reviewed test context.')
+        }
+        $commands = & (Get-Module PSPackageForge) {
+            $install = [CommandSpec]::new('setup.exe', @('/S'))
+            $uninstall = [CommandSpec]::new('uninstall.exe', @('/S'))
+            @(
+                [EvidenceRecord]::new('InstallCommand', $install, [EvidenceSource]::UserOverride,
+                    [ConfidenceLevel]::High, 'Reviewed test install command.'),
+                [EvidenceRecord]::new('UninstallCommand', $uninstall, [EvidenceSource]::UserOverride,
+                    [ConfidenceLevel]::High, 'Reviewed test uninstall command.')
+            )
+        }
+        $outputPath = Join-Path $TestDrive 'malformed-version'
+
+        $result = New-PackageScaffold -Path $script:ExeFixturePath -OutputPath $outputPath `
+            -AdditionalEvidence (@($target, $version, $context) + $commands)
+        $manifest = Get-Content -LiteralPath $result.ManifestPath -Raw | ConvertFrom-Json
+
+        $result.Readiness | Should -Be 'NeedsInput'
+        $result.DetectionPath | Should -BeNullOrEmpty
+        @($manifest.Findings | Where-Object Code -eq 'DETECTION_LOW_CONFIDENCE').Count | Should -Be 1
+        @($manifest.Findings | Where-Object Code -eq 'DETECTION_VERSION_UNCONFIRMED').Count | Should -Be 0
+    }
+}
